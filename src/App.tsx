@@ -9,6 +9,7 @@ import { useProjectStore } from './store/project';
 import { useUIStore } from './store/ui';
 import { useHistoryStore } from './store/history';
 import { useKeyframes } from './hooks/useKeyframes';
+import { applyDrawOnAnimation } from './core/animation/defaultAnimations';
 import type { LayerProperties } from './types';
 
 // Parser worker import
@@ -47,8 +48,18 @@ export default function App() {
           warnings: string[];
         };
 
+        const animated = applyDrawOnAnimation(layers, {
+          fps: project.fps,
+          totalFrames: project.totalFrames,
+          amplitudePx: 3,
+          amplitudeDeg: 4,
+          amplitudeScale: 0.04,
+          steps: 8,
+          staggerMs: 50,
+        });
+
         setProject((draft) => {
-          draft.layers = layers;
+          draft.layers = animated;
           draft.width = width;
           draft.height = height;
         });
@@ -64,7 +75,7 @@ export default function App() {
 
       worker.postMessage({ svgString, totalFrames: project.totalFrames });
     },
-    [project.totalFrames, setProject, setSelectedLayerIds],
+    [project.totalFrames, project.fps, setProject, setSelectedLayerIds],
   );
 
   // Global keyboard shortcuts
