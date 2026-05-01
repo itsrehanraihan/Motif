@@ -9,7 +9,17 @@ export function ImportModal({ onImport, onClose }: ImportModalProps) {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pasteValue, setPasteValue] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const handlePasteImport = () => {
+    const trimmed = pasteValue.trim();
+    if (!trimmed.startsWith('<svg') && !trimmed.startsWith('<?xml')) {
+      setError('Not a valid SVG string.');
+      return;
+    }
+    onImport(trimmed);
+  };
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -89,6 +99,25 @@ export function ImportModal({ onImport, onClose }: ImportModalProps) {
           {error && (
             <p className="text-xs text-red-400 mt-3 text-center">{error}</p>
           )}
+
+          {/* Paste SVG text */}
+          <div className="mt-4 pt-4 border-t border-border">
+            <p className="text-xs text-zinc-500 mb-2">Or paste SVG code:</p>
+            <textarea
+              className="w-full h-20 bg-surface-3 text-xs text-zinc-300 placeholder-zinc-600 px-2 py-1.5 rounded border border-border focus:border-accent outline-none resize-none font-mono"
+              placeholder={'<svg viewBox="0 0 100 100">…</svg>'}
+              value={pasteValue}
+              onChange={(e) => setPasteValue(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+            <button
+              onClick={handlePasteImport}
+              disabled={!pasteValue.trim()}
+              className="mt-1.5 w-full py-1.5 text-xs text-white bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+            >
+              Import from code
+            </button>
+          </div>
 
           {/* Demo SVGs */}
           <div className="mt-4 pt-4 border-t border-border">

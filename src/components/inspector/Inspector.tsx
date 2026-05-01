@@ -3,8 +3,8 @@ import { useProjectStore } from '../../store/project';
 import { useUIStore } from '../../store/ui';
 import { useHistoryStore } from '../../store/history';
 import { SetPropertyValueCommand } from '../../core/commands';
-import { interpolateTransform, interpolateNumber } from '../../core/interpolator';
-import type { Layer, Transform, Color, FillValue } from '../../types';
+import { interpolateTransform, interpolateNumber, interpolateColor, interpolateFill } from '../../core/interpolator';
+import type { Layer, LayerProperties, Transform, Color, FillValue } from '../../types';
 
 // ── Shared inputs ────────────────────────────────────────────────────────────
 
@@ -242,6 +242,83 @@ function LayerInspector({ layer, frame }: LayerInspectorProps) {
   );
 }
 
+// ── Multi-layer inspector ────────────────────────────────────────────────────
+
+interface MultiLayerInspectorProps {
+  layers: Layer[];
+  frame: number;
+}
+
+function MultiLayerInspector({ layers, frame }: MultiLayerInspectorProps) {
+  const { setProject } = useProjectStore();
+
+  const applyToAll = useCallback(
+    <T,>(propKey: keyof LayerProperties, val: T) => {
+      setProject((d) => {
+        for (const target of d.layers) {
+          if (!layers.find((l) => l.id === target.id)) continue;
+          const prop = target.properties[propKey] as unknown as { keyframes: { frame: number; value: T }[] };
+          const kf = prop.keyframes.find((k) => k.frame === frame);
+          if (kf) {
+            kf.value = val;
+          } else {
+            prop.keyframes[0].value = val;
+          }
+        }
+      });
+    },
+    [layers, frame, setProject],
+  );
+
+  const rep = layers[0];
+  const opacity = interpolateNumber(rep.properties.opacity, frame, 100);
+  const sw = interpolateNumber(rep.properties.strokeWidth, frame, 1);
+  const sc = interpolateColor(rep.properties.strokeColor, frame);
+  const fill = interpolateFill(rep.properties.fill, frame);
+  const fillColor = fill.type === 'solid' ? fill.color : { r: 180, g: 180, b: 180, a: 1 };
+
+  return (
+    <div className="flex flex-col">
+      <div className="px-3 py-2 border-b border-border">
+        <p className="text-xs text-zinc-400 font-medium">{layers.length} layers selected</p>
+        <p className="text-[10px] text-zinc-600 mt-0.5">Edits apply to all selected layers</p>
+      </div>
+
+      <SectionHeader title="Opacity" />
+      <div className="px-3 py-2">
+        <NumberInput label="Opac" value={opacity} onChange={(v) => applyToAll<number>('opacity', v)} step={1} min={0} max={100} unit="%" />
+      </div>
+
+      <SectionHeader title="Fill" />
+      <div className="px-3 py-2">
+        <div className="flex items-center gap-1 mb-1.5">
+          <span className="text-[10px] text-zinc-600 w-10 uppercase tracking-wide">Type</span>
+          <select
+            value={fill.type}
+            onChange={(e) => {
+              const type = e.target.value as 'none' | 'solid';
+              applyToAll<FillValue>('fill', type === 'none' ? { type: 'none' } : { type: 'solid', color: fillColor, opacity: 100 });
+            }}
+            className="flex-1 bg-surface-3 text-xs text-zinc-300 px-2 py-0.5 rounded border border-border outline-none"
+          >
+            <option value="none">None</option>
+            <option value="solid">Solid</option>
+          </select>
+        </div>
+        {fill.type === 'solid' && (
+          <ColorInput label="Color" color={fillColor} onChange={(c) => applyToAll<FillValue>('fill', { type: 'solid', color: c, opacity: 100 })} />
+        )}
+      </div>
+
+      <SectionHeader title="Stroke" />
+      <div className="px-3 py-2 flex flex-col gap-1.5">
+        <ColorInput label="Color" color={sc} onChange={(c) => applyToAll<Color>('strokeColor', c)} />
+        <NumberInput label="Width" value={sw} onChange={(v) => applyToAll<number>('strokeWidth', v)} step={0.5} min={0} unit="px" />
+      </div>
+    </div>
+  );
+}
+
 // ── Inspector panel ──────────────────────────────────────────────────────────
 
 export function Inspector() {
@@ -272,9 +349,7 @@ export function Inspector() {
       )}
 
       {selectedLayers.length > 1 && (
-        <div className="px-3 py-4 text-xs text-zinc-600">
-          {selectedLayers.length} layers selected.
-        </div>
+        <MultiLayerInspector layers={selectedLayers} frame={currentFrame} />
       )}
     </aside>
   );

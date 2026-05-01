@@ -1,31 +1,29 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useProjectStore } from '../../store/project';
 import { useUIStore } from '../../store/ui';
 import { useHistoryStore } from '../../store/history';
-import { RenameLayerCommand, ReorderLayersCommand, DeleteLayerCommand } from '../../core/commands';
+import { RenameLayerCommand, DeleteLayerCommand } from '../../core/commands';
 import type { Layer } from '../../types';
 
 // ── Layer row ────────────────────────────────────────────────────────────────
 
 interface LayerRowProps {
   layer: Layer;
-  index: number;
+  depth: number;
   selected: boolean;
+  hasChildren: boolean;
+  expanded: boolean;
+  onToggleExpand: (id: string) => void;
   onSelect: (id: string, multi: boolean) => void;
   onVisibilityToggle: (id: string) => void;
   onLockToggle: (id: string) => void;
   onRename: (id: string, name: string, oldName: string) => void;
   onDelete: (id: string) => void;
-  onDragStart: (index: number) => void;
-  onDragOver: (index: number) => void;
-  onDrop: () => void;
-  dragOverIndex: number | null;
 }
 
 function LayerRow({
-  layer, index, selected,
-  onSelect, onVisibilityToggle, onLockToggle, onRename, onDelete,
-  onDragStart, onDragOver, onDrop, dragOverIndex,
+  layer, depth, selected, hasChildren, expanded,
+  onToggleExpand, onSelect, onVisibilityToggle, onLockToggle, onRename, onDelete,
 }: LayerRowProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(layer.name);
@@ -35,31 +33,38 @@ function LayerRow({
     setEditing(false);
   };
 
+  const isGroup = layer.type === 'group';
+
   return (
     <div
-      draggable
-      onDragStart={() => onDragStart(index)}
-      onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
-      onDrop={onDrop}
-      onClick={(e) => onSelect(layer.id, e.shiftKey || e.metaKey)}
+      onClick={(e) => onSelect(layer.id, e.shiftKey || e.metaKey || e.ctrlKey)}
       className={`
-        flex items-center gap-1.5 px-2 py-1 cursor-pointer text-xs group transition-colors
-        ${selected ? 'bg-accent/20 text-white' : 'text-zinc-400 hover:bg-surface-3 hover:text-zinc-200'}
-        ${dragOverIndex === index ? 'border-t-2 border-accent' : ''}
+        flex items-center gap-1 px-1 py-1 cursor-pointer text-xs group transition-colors
+        ${selected ? 'bg-accent/25 text-white' : 'text-zinc-400 hover:bg-surface-3 hover:text-zinc-200'}
         select-none
       `}
+      style={{ paddingLeft: 4 + depth * 12 }}
     >
-      {/* Color dot */}
-      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: layer.color }} />
+      {/* Expand chevron */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (hasChildren) onToggleExpand(layer.id);
+        }}
+        className="w-3 h-3 flex items-center justify-center flex-shrink-0 text-zinc-600 hover:text-zinc-300"
+        style={{ visibility: hasChildren ? 'visible' : 'hidden' }}
+      >
+        <span className="text-[8px]">{expanded ? '▾' : '▸'}</span>
+      </button>
 
       {/* Type icon */}
-      <span className="text-zinc-600 flex-shrink-0 w-3 text-center text-[10px]">
-        {layer.type === 'rect' ? '▭' :
-         layer.type === 'ellipse' ? '◯' :
-         layer.type === 'path' ? '⌒' :
+      <span className="flex-shrink-0 w-3 text-center text-[11px]" style={{ color: layer.color }}>
+        {isGroup ? (expanded ? '⌐' : '▣') :
+         layer.type === 'rect' ? '▭' :
+         layer.type === 'ellipse' || layer.type === 'path' && layer.name.includes('circle') ? '◯' :
          layer.type === 'text' ? 'T' :
          layer.type === 'frame' ? '⬚' :
-         layer.type === 'group' ? '⊞' : '·'}
+         '◇'}
       </span>
 
       {/* Name */}
@@ -80,7 +85,7 @@ function LayerRow({
           />
         ) : (
           <span
-            className="truncate block leading-snug"
+            className={`truncate block leading-snug ${isGroup ? 'font-medium' : ''}`}
             onDoubleClick={(e) => { e.stopPropagation(); setEditValue(layer.name); setEditing(true); }}
           >
             {layer.name}
@@ -95,7 +100,7 @@ function LayerRow({
           className="w-4 h-4 flex items-center justify-center text-zinc-500 hover:text-zinc-200 text-[10px]"
           title={layer.locked ? 'Unlock' : 'Lock'}
         >
-          {layer.locked ? '⊠' : '○'}
+          {layer.locked ? '🔒' : '○'}
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onVisibilityToggle(layer.id); }}
@@ -116,6 +121,63 @@ function LayerRow({
   );
 }
 
+// ── Tree builder ─────────────────────────────────────────────────────────────
+
+interface TreeNode {
+  layer: Layer;
+  depth: number;
+  hasChildren: boolean;
+}
+
+function buildTree(layers: Layer[], expandedIds: Set<string>, search: string): TreeNode[] {
+  // Build parent → children map preserving order from layers array
+  const childrenByParent = new Map<string | null, Layer[]>();
+  for (const layer of layers) {
+    const key = layer.parentId;
+    if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+    childrenByParent.get(key)!.push(layer);
+  }
+
+  // If searching, return flat filtered list
+  if (search) {
+    const q = search.toLowerCase();
+    return layers
+      .filter((l) => l.name.toLowerCase().includes(q))
+      .map((layer) => ({ layer, depth: 0, hasChildren: false }));
+  }
+
+  // DFS from roots (parentId === null)
+  const out: TreeNode[] = [];
+  const dfs = (parentId: string | null, depth: number) => {
+    const kids = childrenByParent.get(parentId) ?? [];
+    for (const layer of kids) {
+      const myKids = childrenByParent.get(layer.id) ?? [];
+      out.push({ layer, depth, hasChildren: myKids.length > 0 });
+      if (myKids.length > 0 && expandedIds.has(layer.id)) {
+        dfs(layer.id, depth + 1);
+      }
+    }
+  };
+  dfs(null, 0);
+  return out;
+}
+
+// Collect descendant ids for a given layer (for select/delete cascade)
+function descendantsOf(layerId: string, layers: Layer[]): string[] {
+  const out: string[] = [];
+  const stack = [layerId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const l of layers) {
+      if (l.parentId === id) {
+        out.push(l.id);
+        stack.push(l.id);
+      }
+    }
+  }
+  return out;
+}
+
 // ── Layer panel ──────────────────────────────────────────────────────────────
 
 export function LayerPanel() {
@@ -123,13 +185,26 @@ export function LayerPanel() {
   const { selectedLayerIds, toggleSelectLayer, setSelectedLayerIds } = useUIStore();
   const { execute } = useHistoryStore();
 
-  const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
 
-  const visibleLayers = search
-    ? project.layers.filter((l) => l.name.toLowerCase().includes(search.toLowerCase()))
-    : project.layers;
+  // Default-expand top-level groups when layers change
+  React.useEffect(() => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      for (const l of project.layers) {
+        if (l.type === 'group' && l.parentId === null && !next.has(l.id)) {
+          next.add(l.id);
+        }
+      }
+      return next;
+    });
+  }, [project.layers]);
+
+  const tree = useMemo(
+    () => buildTree(project.layers, expandedIds, search),
+    [project.layers, expandedIds, search],
+  );
 
   const handleRename = useCallback(
     (id: string, newName: string, oldName: string) => {
@@ -141,45 +216,80 @@ export function LayerPanel() {
 
   const handleVisibilityToggle = useCallback(
     (id: string) => {
+      const ids = [id, ...descendantsOf(id, project.layers)];
       setProject((d) => {
-        const l = d.layers.find((x) => x.id === id);
-        if (l) l.visible = !l.visible;
+        const target = d.layers.find((x) => x.id === id);
+        if (!target) return;
+        const newVal = !target.visible;
+        for (const l of d.layers) {
+          if (ids.includes(l.id)) l.visible = newVal;
+        }
       });
     },
-    [setProject],
+    [setProject, project.layers],
   );
 
   const handleLockToggle = useCallback(
     (id: string) => {
+      const ids = [id, ...descendantsOf(id, project.layers)];
       setProject((d) => {
-        const l = d.layers.find((x) => x.id === id);
-        if (l) l.locked = !l.locked;
+        const target = d.layers.find((x) => x.id === id);
+        if (!target) return;
+        const newVal = !target.locked;
+        for (const l of d.layers) {
+          if (ids.includes(l.id)) l.locked = newVal;
+        }
       });
     },
-    [setProject],
+    [setProject, project.layers],
   );
 
   const handleDelete = useCallback(
     (id: string) => {
-      execute(new DeleteLayerCommand(id, setProject));
-      setSelectedLayerIds(selectedLayerIds.filter((s) => s !== id));
+      const ids = new Set([id, ...descendantsOf(id, project.layers)]);
+      setProject((d) => {
+        d.layers = d.layers.filter((l) => !ids.has(l.id));
+      });
+      setSelectedLayerIds(selectedLayerIds.filter((s) => !ids.has(s)));
     },
-    [setProject, execute, selectedLayerIds, setSelectedLayerIds],
+    [setProject, project.layers, selectedLayerIds, setSelectedLayerIds],
   );
 
-  const handleDrop = useCallback(() => {
-    if (dragFromIndex === null || dragOverIndex === null || dragFromIndex === dragOverIndex) {
-      setDragFromIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
-    execute(new ReorderLayersCommand(dragFromIndex, dragOverIndex, setProject));
-    setDragFromIndex(null);
-    setDragOverIndex(null);
-  }, [dragFromIndex, dragOverIndex, setProject, execute]);
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Click on group selects the group AND all descendants
+  const handleSelect = useCallback(
+    (id: string, multi: boolean) => {
+      const layer = project.layers.find((l) => l.id === id);
+      if (!layer) return;
+      if (layer.type === 'group') {
+        const all = [id, ...descendantsOf(id, project.layers)];
+        if (multi) {
+          const has = selectedLayerIds.includes(id);
+          if (has) {
+            setSelectedLayerIds(selectedLayerIds.filter((s) => !all.includes(s)));
+          } else {
+            setSelectedLayerIds([...new Set([...selectedLayerIds, ...all])]);
+          }
+        } else {
+          setSelectedLayerIds(all);
+        }
+      } else {
+        toggleSelectLayer(id, multi);
+      }
+    },
+    [project.layers, selectedLayerIds, setSelectedLayerIds, toggleSelectLayer],
+  );
 
   return (
-    <aside className="flex flex-col w-48 bg-surface-1 border-r border-border flex-shrink-0 overflow-hidden">
+    <aside className="flex flex-col w-56 bg-surface-1 border-r border-border flex-shrink-0 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-2 py-1.5 border-b border-border flex-shrink-0">
         <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Layers</span>
@@ -196,28 +306,27 @@ export function LayerPanel() {
         />
       </div>
 
-      {/* Layer list */}
+      {/* Tree */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
-        {visibleLayers.length === 0 && (
+        {tree.length === 0 && (
           <div className="text-xs text-zinc-700 text-center py-8 px-4 leading-relaxed">
-            {project.layers.length === 0 ? 'Import an SVG to get started' : 'No matching layers'}
+            {project.layers.length === 0 ? 'Import an SVG to get started' : 'No matches'}
           </div>
         )}
-        {visibleLayers.map((layer, i) => (
+        {tree.map(({ layer, depth, hasChildren }) => (
           <LayerRow
             key={layer.id}
             layer={layer}
-            index={i}
+            depth={depth}
+            hasChildren={hasChildren}
+            expanded={expandedIds.has(layer.id)}
             selected={selectedLayerIds.includes(layer.id)}
-            onSelect={toggleSelectLayer}
+            onToggleExpand={toggleExpand}
+            onSelect={handleSelect}
             onVisibilityToggle={handleVisibilityToggle}
             onLockToggle={handleLockToggle}
             onRename={handleRename}
             onDelete={handleDelete}
-            onDragStart={setDragFromIndex}
-            onDragOver={setDragOverIndex}
-            onDrop={handleDrop}
-            dragOverIndex={dragOverIndex}
           />
         ))}
       </div>
@@ -230,6 +339,7 @@ export function LayerPanel() {
         >
           All
         </button>
+        <span className="text-[10px] text-zinc-700">{selectedLayerIds.length} selected</span>
         <button
           onClick={() => setSelectedLayerIds([])}
           className="text-xs text-zinc-600 hover:text-zinc-300 transition-colors"

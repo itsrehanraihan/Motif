@@ -67,6 +67,22 @@ export default function App() {
     [project.totalFrames, setProject, setSelectedLayerIds],
   );
 
+  // Global paste handler — paste SVG markup directly
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const tag = (e.target as Element)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      const text = e.clipboardData?.getData('text/plain') ?? '';
+      const trimmed = text.trim();
+      if (trimmed.startsWith('<svg') || trimmed.startsWith('<?xml')) {
+        e.preventDefault();
+        handleImportSvg(trimmed);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [handleImportSvg]);
+
   // Global keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
