@@ -5,13 +5,15 @@ import { useUIStore } from '../../store/ui';
 import { useHistoryStore } from '../../store/history';
 import { usePlayback } from '../../hooks/usePlayback';
 import { useKeyframes } from '../../hooks/useKeyframes';
-import { MoveKeyframeCommand } from '../../core/commands';
+import { MoveKeyframeCommand, SetLayerRangeCommand } from '../../core/commands';
 import type { Layer, LayerProperties } from '../../types';
 
-const TRACK_H = 28;
+const TRACK_H = 36;
 const PROP_H = 22;
-const RULER_H = 24;
-const LABEL_W = 168;
+const RULER_H = 26;
+const LABEL_W = 200;
+const TRIM_W = 6; // trim handle width
+const KF_SIZE = 11; // keyframe diamond half-size
 
 const PROP_LABELS: Partial<Record<keyof LayerProperties, string>> = {
   transform: 'Transform',
@@ -42,26 +44,26 @@ function Ruler({ totalFrames, fps, frameZoom, scrollLeft, width, currentFrame, o
     (e: React.PointerEvent<SVGSVGElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left + scrollLeft;
-      const frame = Math.max(0, Math.min(totalFrames - 1, Math.round(x / frameZoom)));
-      onSeek(frame);
+      const frame = Math.max(0, Math.min(totalFrames, x / frameZoom));
+      onSeek(Math.round(frame));
     },
     [scrollLeft, frameZoom, totalFrames, onSeek],
   );
 
   const ticks: React.ReactNode[] = [];
   const majorStep = fps;
-  const minorStep = frameZoom >= 8 ? 1 : frameZoom >= 4 ? 5 : fps;
+  const minorStep = frameZoom >= 12 ? 1 : frameZoom >= 6 ? 5 : fps;
 
   for (let f = 0; f <= totalFrames; f += minorStep) {
     const x = f * frameZoom - scrollLeft;
-    if (x < -20 || x > width + 20) continue;
+    if (x < -30 || x > width + 30) continue;
     const isMajor = f % majorStep === 0;
     ticks.push(
       <React.Fragment key={f}>
-        <line x1={x} y1={isMajor ? 6 : 14} x2={x} y2={RULER_H} stroke={isMajor ? '#52525b' : '#3f3f46'} strokeWidth={1} />
+        <line x1={x} y1={isMajor ? 6 : 16} x2={x} y2={RULER_H} stroke={isMajor ? '#52525b' : '#3f3f46'} strokeWidth={1} />
         {isMajor && (
-          <text x={x + 2} y={11} fill="#52525b" fontSize={9} fontFamily="monospace">
-            {`${Math.floor(f / fps)}s`}
+          <text x={x + 3} y={12} fill="#71717a" fontSize={10} fontFamily="ui-monospace, monospace" fontWeight={500}>
+            {`${Math.round(f / fps)}s`}
           </text>
         )}
       </React.Fragment>,
@@ -74,14 +76,13 @@ function Ruler({ totalFrames, fps, frameZoom, scrollLeft, width, currentFrame, o
     <svg
       width={width}
       height={RULER_H}
-      style={{ background: '#18181b', display: 'block', cursor: 'col-resize', userSelect: 'none' }}
+      style={{ background: '#0f0f12', display: 'block', cursor: 'ew-resize', userSelect: 'none' }}
       onPointerDown={(e) => { seeking.current = true; e.currentTarget.setPointerCapture(e.pointerId); handlePointer(e); }}
       onPointerMove={(e) => { if (seeking.current) handlePointer(e); }}
-      onPointerUp={() => { seeking.current = false; }}
+      onPointerUp={(e) => { seeking.current = false; e.currentTarget.releasePointerCapture(e.pointerId); }}
     >
       {ticks}
-      <polygon points={`${phX - 5},0 ${phX + 5},0 ${phX},${RULER_H - 2}`} fill="#6366f1" />
-      <line x1={phX} y1={0} x2={phX} y2={RULER_H} stroke="#6366f1" strokeWidth={1.5} />
+      <polygon points={`${phX - 6},0 ${phX + 6},0 ${phX},${RULER_H}`} fill="#6366f1" />
     </svg>
   );
 }
@@ -95,45 +96,56 @@ interface DiamondProps {
   color: string;
   trackH: number;
   onMove: (toFrame: number) => void;
+  filled?: boolean;
 }
 
-function Diamond({ frame, frameZoom, scrollLeft, color, trackH, onMove }: DiamondProps) {
+function Diamond({ frame, frameZoom, scrollLeft, color, trackH, onMove, filled = true }: DiamondProps) {
   const startFrame = useRef(frame);
-  const startX = useRef(0);
-  const S = 5;
-  const cx = frame * frameZoom - scrollLeft;
-  const cy = trackH / 2;
 
   const bind = useGesture({
     onDragStart: ({ event }) => {
-      startX.current = (event as PointerEvent).clientX;
       startFrame.current = frame;
       event.stopPropagation();
     },
-    onDragEnd: ({ movement: [mx] }) => {
+    onDrag: ({ event }) => {
+      event.stopPropagation();
+    },
+    onDragEnd: ({ movement: [mx], event }) => {
+      event.stopPropagation();
       const delta = Math.round(mx / frameZoom);
-      onMove(Math.max(0, startFrame.current + delta));
+      const target = Math.max(0, startFrame.current + delta);
+      if (target !== startFrame.current) onMove(target);
     },
   });
 
+  const cx = frame * frameZoom - scrollLeft;
+  const cy = trackH / 2;
+
   return (
     <g {...bind()} style={{ cursor: 'ew-resize' }}>
+      {/* Larger hit target */}
       <rect
-        x={cx - S}
-        y={cy - S}
-        width={S * 2}
-        height={S * 2}
+        x={cx - KF_SIZE - 2}
+        y={cy - KF_SIZE - 2}
+        width={(KF_SIZE + 2) * 2}
+        height={(KF_SIZE + 2) * 2}
+        fill="transparent"
+      />
+      <rect
+        x={cx - KF_SIZE / 2}
+        y={cy - KF_SIZE / 2}
+        width={KF_SIZE}
+        height={KF_SIZE}
         transform={`rotate(45, ${cx}, ${cy})`}
-        fill={color}
+        fill={filled ? color : '#0f0f12'}
         stroke="white"
-        strokeWidth={1}
-        opacity={0.9}
+        strokeWidth={1.5}
       />
     </g>
   );
 }
 
-// ── Property track ───────────────────────────────────────────────────────────
+// ── Property sub-track ───────────────────────────────────────────────────────
 
 interface PropTrackProps {
   layer: Layer;
@@ -151,12 +163,15 @@ function PropTrack({ layer, propKey, frameZoom, scrollLeft, totalPx, currentFram
 
   return (
     <div className="flex" style={{ height: PROP_H }}>
-      <div className="flex items-center px-2 text-[10px] text-zinc-700 flex-shrink-0 border-r border-zinc-800" style={{ width: LABEL_W, paddingLeft: 28 }}>
+      <div
+        className="flex items-center px-2 text-[10px] text-zinc-500 flex-shrink-0 border-r border-border bg-surface-2"
+        style={{ width: LABEL_W, paddingLeft: 32 }}
+      >
         {PROP_LABELS[propKey] ?? propKey}
       </div>
-      <div className="relative flex-1 border-b border-zinc-800/60" style={{ height: PROP_H }}>
+      <div className="relative flex-1 border-b border-border/40" style={{ height: PROP_H, background: '#141417' }}>
         <svg width={totalPx} height={PROP_H} style={{ overflow: 'visible', display: 'block' }}>
-          <line x1={phX} y1={0} x2={phX} y2={PROP_H} stroke="#6366f1" strokeWidth={1} opacity={0.4} />
+          <line x1={phX} y1={0} x2={phX} y2={PROP_H} stroke="#6366f1" strokeWidth={1} opacity={0.5} />
           {prop.keyframes.map((kf) => (
             <Diamond
               key={kf.frame}
@@ -174,111 +189,232 @@ function PropTrack({ layer, propKey, frameZoom, scrollLeft, totalPx, currentFram
   );
 }
 
-// ── Layer track row ──────────────────────────────────────────────────────────
+// ── Layer clip bar ───────────────────────────────────────────────────────────
+
+interface ClipBarProps {
+  layer: Layer;
+  frameZoom: number;
+  scrollLeft: number;
+  totalPx: number;
+  totalFrames: number;
+  currentFrame: number;
+  selected: boolean;
+  onSelect: () => void;
+  onMove: (layerId: string, propKey: keyof LayerProperties, from: number, to: number) => void;
+  onSetRange: (layerId: string, inPoint: number, outPoint: number) => void;
+}
+
+function ClipBar({
+  layer, frameZoom, scrollLeft, totalPx, totalFrames, currentFrame,
+  selected, onSelect, onMove, onSetRange,
+}: ClipBarProps) {
+  const [dragMode, setDragMode] = useState<'none' | 'move' | 'trim-l' | 'trim-r'>('none');
+  const dragStart = useRef({ inPoint: 0, outPoint: 0 });
+
+  const phX = currentFrame * frameZoom - scrollLeft;
+
+  // Aggregate keyframes across all animated properties
+  const allKfs: { frame: number; propKey: keyof LayerProperties }[] = [];
+  for (const k of Object.keys(layer.properties) as (keyof LayerProperties)[]) {
+    const kfs = layer.properties[k].keyframes;
+    if (kfs.length > 1) {
+      for (const kf of kfs) allKfs.push({ frame: kf.frame, propKey: k });
+    }
+  }
+
+  const startDrag = (mode: 'move' | 'trim-l' | 'trim-r') => (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setDragMode(mode);
+    dragStart.current = { inPoint: layer.inPoint, outPoint: layer.outPoint };
+    onSelect();
+
+    const startX = e.clientX;
+    const onMoveEvt = (ev: PointerEvent) => {
+      const delta = Math.round((ev.clientX - startX) / frameZoom);
+      let { inPoint, outPoint } = dragStart.current;
+      if (mode === 'move') {
+        inPoint = Math.max(0, dragStart.current.inPoint + delta);
+        outPoint = Math.min(totalFrames, dragStart.current.outPoint + delta);
+        // preserve length if hitting bound
+        if (inPoint === 0) outPoint = dragStart.current.outPoint - dragStart.current.inPoint;
+        if (outPoint === totalFrames) inPoint = totalFrames - (dragStart.current.outPoint - dragStart.current.inPoint);
+      } else if (mode === 'trim-l') {
+        inPoint = Math.max(0, Math.min(dragStart.current.outPoint - 1, dragStart.current.inPoint + delta));
+      } else {
+        outPoint = Math.min(totalFrames, Math.max(dragStart.current.inPoint + 1, dragStart.current.outPoint + delta));
+      }
+      onSetRange(layer.id, inPoint, outPoint);
+    };
+    const onUp = () => {
+      setDragMode('none');
+      window.removeEventListener('pointermove', onMoveEvt);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMoveEvt);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const barX = layer.inPoint * frameZoom - scrollLeft;
+  const barW = Math.max(0, (layer.outPoint - layer.inPoint) * frameZoom);
+  const barY = 4;
+  const barH = TRACK_H - 8;
+
+  return (
+    <div
+      className="relative flex-1 select-none"
+      style={{ height: TRACK_H, background: selected ? 'rgba(99,102,241,0.05)' : '#141417' }}
+    >
+      <svg width={totalPx} height={TRACK_H} style={{ overflow: 'visible', display: 'block' }}>
+        {/* Playhead line */}
+        <line x1={phX} y1={0} x2={phX} y2={TRACK_H} stroke="#6366f1" strokeWidth={1} opacity={0.5} />
+      </svg>
+
+      {/* Clip bar (positioned div for crisp interaction) */}
+      <div
+        style={{
+          position: 'absolute',
+          left: barX,
+          top: barY,
+          width: barW,
+          height: barH,
+          background: `linear-gradient(180deg, ${layer.color}40, ${layer.color}20)`,
+          border: `1px solid ${selected ? layer.color : layer.color + '80'}`,
+          borderRadius: 4,
+          cursor: dragMode === 'move' ? 'grabbing' : 'grab',
+          overflow: 'hidden',
+        }}
+        onPointerDown={startDrag('move')}
+        onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      >
+        {/* Clip body label */}
+        <div
+          className="flex items-center h-full px-2 text-xs font-medium pointer-events-none"
+          style={{ color: layer.color }}
+        >
+          <span className="truncate" style={{ filter: 'brightness(1.5)' }}>{layer.name}</span>
+        </div>
+
+        {/* Left trim handle */}
+        <div
+          onPointerDown={startDrag('trim-l')}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: TRIM_W,
+            height: '100%',
+            cursor: 'ew-resize',
+            background: dragMode === 'trim-l' ? layer.color : 'transparent',
+            borderRight: `2px solid ${layer.color}`,
+          }}
+        />
+
+        {/* Right trim handle */}
+        <div
+          onPointerDown={startDrag('trim-r')}
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            width: TRIM_W,
+            height: '100%',
+            cursor: 'ew-resize',
+            background: dragMode === 'trim-r' ? layer.color : 'transparent',
+            borderLeft: `2px solid ${layer.color}`,
+          }}
+        />
+      </div>
+
+      {/* Keyframe diamonds layered on top */}
+      <svg
+        width={totalPx}
+        height={TRACK_H}
+        style={{ overflow: 'visible', display: 'block', position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }}
+      >
+        <g style={{ pointerEvents: 'auto' }}>
+          {allKfs.map((kf, i) => (
+            <Diamond
+              key={`${kf.propKey}-${kf.frame}-${i}`}
+              frame={kf.frame}
+              frameZoom={frameZoom}
+              scrollLeft={scrollLeft}
+              color={layer.color}
+              trackH={TRACK_H}
+              onMove={(to) => onMove(layer.id, kf.propKey, kf.frame, to)}
+              filled
+            />
+          ))}
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+// ── Layer track row (label + bar) ────────────────────────────────────────────
 
 interface LayerTrackProps {
   layer: Layer;
   frameZoom: number;
   scrollLeft: number;
   totalPx: number;
-  trackW: number;
+  totalFrames: number;
   currentFrame: number;
   expanded: boolean;
   selected: boolean;
   onToggleExpand: () => void;
   onSelect: () => void;
   onMove: (layerId: string, propKey: keyof LayerProperties, from: number, to: number) => void;
-  onAddKeyframe: (layerId: string, propKey: keyof LayerProperties) => void;
+  onSetRange: (layerId: string, inPoint: number, outPoint: number) => void;
 }
 
-function LayerTrack({
-  layer, frameZoom, scrollLeft, totalPx, trackW, currentFrame,
-  expanded, selected, onToggleExpand, onSelect, onMove, onAddKeyframe,
-}: LayerTrackProps) {
-  const phX = currentFrame * frameZoom - scrollLeft;
-
-  const allKeyframeFrames = new Set<number>();
-  for (const p of Object.values(layer.properties)) {
-    for (const kf of p.keyframes) {
-      if (p.keyframes.length > 1) allKeyframeFrames.add(kf.frame);
-    }
-  }
+function LayerTrack(props: LayerTrackProps) {
+  const { layer, expanded, selected, onToggleExpand, onSelect } = props;
 
   const expandedProps = (Object.keys(PROP_LABELS) as (keyof LayerProperties)[]).filter(
     (k) => layer.properties[k].keyframes.length > 1,
   );
 
   return (
-    <div className={selected ? 'bg-accent/5' : ''}>
-      {/* Layer row */}
-      <div className="flex border-b border-zinc-800/60" style={{ height: TRACK_H }}>
+    <div>
+      <div className="flex border-b border-border/60" style={{ height: TRACK_H }}>
         {/* Label */}
         <div
-          className="flex items-center gap-1.5 px-2 flex-shrink-0 border-r border-border cursor-pointer select-none"
+          className={`flex items-center gap-1.5 px-2 flex-shrink-0 border-r border-border cursor-pointer select-none ${selected ? 'bg-accent/10' : 'bg-surface-2 hover:bg-surface-3'}`}
           style={{ width: LABEL_W, height: TRACK_H }}
           onClick={onSelect}
         >
           <button
             onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
-            className="text-zinc-700 hover:text-zinc-400 w-3 text-center text-[10px] flex-shrink-0"
+            className="text-zinc-600 hover:text-zinc-300 w-3 text-center text-[11px] flex-shrink-0"
+            disabled={expandedProps.length === 0}
           >
-            {expandedProps.length > 0 ? (expanded ? '▾' : '▸') : '·'}
+            {expandedProps.length > 0 ? (expanded ? '▾' : '▸') : ''}
           </button>
-          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: layer.color }} />
-          <span className="text-xs text-zinc-400 truncate flex-1">{layer.name}</span>
-          <button
-            onClick={(e) => { e.stopPropagation(); onAddKeyframe(layer.id, 'transform'); }}
-            className="text-zinc-700 hover:text-accent text-[10px] ml-auto flex-shrink-0"
-            title="Add keyframe at playhead (K)"
-          >◆</button>
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: layer.color }} />
+          <span className="text-xs text-zinc-300 truncate flex-1">{layer.name}</span>
+          {expandedProps.length > 0 && (
+            <span className="text-[9px] text-zinc-600 font-mono flex-shrink-0">
+              {expandedProps.length}
+            </span>
+          )}
         </div>
 
-        {/* Track */}
-        <div className="relative flex-1 overflow-hidden" style={{ height: TRACK_H }}>
-          <svg width={totalPx} height={TRACK_H} style={{ overflow: 'visible', display: 'block' }}>
-            {/* In/out bar */}
-            <rect
-              x={Math.max(0, layer.inPoint * frameZoom - scrollLeft)}
-              y={6}
-              width={Math.max(0, (layer.outPoint - layer.inPoint) * frameZoom)}
-              height={TRACK_H - 12}
-              fill={layer.color}
-              opacity={0.12}
-              rx={2}
-            />
-            {/* Playhead */}
-            <line x1={phX} y1={0} x2={phX} y2={TRACK_H} stroke="#6366f1" strokeWidth={1} opacity={0.6} />
-            {/* Summary diamonds */}
-            {[...allKeyframeFrames].map((f) => {
-              const cx = f * frameZoom - scrollLeft;
-              return (
-                <rect
-                  key={f}
-                  x={cx - 4}
-                  y={TRACK_H / 2 - 4}
-                  width={8}
-                  height={8}
-                  transform={`rotate(45, ${cx}, ${TRACK_H / 2})`}
-                  fill={layer.color}
-                  opacity={0.7}
-                />
-              );
-            })}
-          </svg>
-        </div>
+        {/* Clip bar */}
+        <ClipBar {...props} />
       </div>
 
-      {/* Property rows */}
+      {/* Property sub-tracks */}
       {expanded && expandedProps.map((pk) => (
         <PropTrack
           key={pk}
           layer={layer}
           propKey={pk}
-          frameZoom={frameZoom}
-          scrollLeft={scrollLeft}
-          totalPx={totalPx}
-          currentFrame={currentFrame}
-          onMove={onMove}
+          frameZoom={props.frameZoom}
+          scrollLeft={props.scrollLeft}
+          totalPx={props.totalPx}
+          currentFrame={props.currentFrame}
+          onMove={props.onMove}
         />
       ))}
     </div>
@@ -298,13 +434,13 @@ export function Timeline() {
   } = useUIStore();
   const { execute } = useHistoryStore();
   const { togglePlayback, seek } = usePlayback();
-  const { addKeyframe } = useKeyframes();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [trackW, setTrackW] = useState(800);
 
-  const frameZoom = timelineZoom * 4;
+  // Pixels per frame
+  const frameZoom = Math.max(2, timelineZoom * 6);
   const totalPx = Math.max(project.totalFrames * frameZoom, trackW);
 
   useEffect(() => {
@@ -315,10 +451,32 @@ export function Timeline() {
     return () => obs.disconnect();
   }, []);
 
+  // Wheel zoom on timeline (ctrl/cmd+wheel = zoom, regular wheel = pan)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 0.9 : 1.1;
+        setTimelineZoom(timelineZoom * factor);
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [timelineZoom, setTimelineZoom]);
+
   const handleMove = useCallback(
     (layerId: string, propKey: keyof LayerProperties, from: number, to: number) => {
       if (from === to) return;
       execute(new MoveKeyframeCommand(layerId, propKey, from, to, setProject));
+    },
+    [execute, setProject],
+  );
+
+  const handleSetRange = useCallback(
+    (layerId: string, inPoint: number, outPoint: number) => {
+      execute(new SetLayerRangeCommand(layerId, inPoint, outPoint, setProject));
     },
     [execute, setProject],
   );
@@ -340,47 +498,55 @@ export function Timeline() {
       />
 
       {/* Controls */}
-      <div className="flex items-center gap-2 px-3 h-9 border-b border-border flex-shrink-0 flex-wrap">
-        <button onClick={() => seek(0)} className="text-zinc-500 hover:text-white text-xs" title="Go to start">⏮</button>
+      <div className="flex items-center gap-2 px-3 h-9 border-b border-border flex-shrink-0">
+        <button onClick={() => seek(0)} className="text-zinc-400 hover:text-white text-sm" title="Go to start">⏮</button>
         <button
           onClick={togglePlayback}
-          className="w-6 h-6 flex items-center justify-center rounded bg-accent hover:bg-accent-hover text-white text-xs flex-shrink-0"
+          className="w-7 h-7 flex items-center justify-center rounded bg-accent hover:bg-accent-hover text-white text-sm flex-shrink-0"
+          title="Play / Pause (Space)"
         >
           {isPlaying ? '⏸' : '▶'}
         </button>
-        <button onClick={() => seek(project.totalFrames - 1)} className="text-zinc-500 hover:text-white text-xs" title="Go to end">⏭</button>
+        <button onClick={() => seek(project.totalFrames)} className="text-zinc-400 hover:text-white text-sm" title="Go to end">⏭</button>
 
-        <span className="text-xs text-zinc-500 font-mono w-20 flex-shrink-0">
+        <span className="text-xs text-zinc-400 font-mono w-24 flex-shrink-0">
           {String(Math.floor(currentFrame)).padStart(4, '0')} / {project.totalFrames}
         </span>
 
         <div className="w-px h-4 bg-border" />
 
         <div className="flex items-center gap-1">
-          <button onClick={() => setTimelineZoom(timelineZoom / 1.5)} className="text-zinc-500 hover:text-white w-4 text-center text-sm">−</button>
-          <span className="text-[10px] text-zinc-600 w-8 text-center">{timelineZoom.toFixed(1)}×</span>
-          <button onClick={() => setTimelineZoom(timelineZoom * 1.5)} className="text-zinc-500 hover:text-white w-4 text-center text-sm">+</button>
+          <button onClick={() => setTimelineZoom(timelineZoom / 1.4)} className="text-zinc-400 hover:text-white w-5 text-center">−</button>
+          <span className="text-[10px] text-zinc-500 w-9 text-center font-mono">{timelineZoom.toFixed(1)}×</span>
+          <button onClick={() => setTimelineZoom(timelineZoom * 1.4)} className="text-zinc-400 hover:text-white w-5 text-center">+</button>
         </div>
 
-        <div className="w-px h-4 bg-border" />
+        <span className="text-[10px] text-zinc-600 italic">Cmd/Ctrl + Wheel to zoom</span>
 
-        <div className="flex items-center gap-1 text-xs text-zinc-600">
-          <span>Dur:</span>
+        <div className="flex-1" />
+
+        <div className="flex items-center gap-1 text-xs text-zinc-500">
+          <span>Duration:</span>
           <input
             type="number" min={1} max={3600}
             value={project.totalFrames}
             onChange={(e) => setProject((d) => { d.totalFrames = Math.max(1, +e.target.value); })}
-            className="w-14 bg-surface-3 text-zinc-300 px-1 py-0.5 rounded border border-border outline-none text-xs"
+            className="w-16 bg-surface-3 text-zinc-300 px-1.5 py-0.5 rounded border border-border outline-none text-xs"
           />
-          <span className="text-zinc-700">fr</span>
+          <span className="text-zinc-600">fr</span>
         </div>
       </div>
 
       {/* Tracks area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Labels column header (spacer) */}
-        <div className="flex-shrink-0 border-r border-border" style={{ width: LABEL_W }}>
-          <div style={{ height: RULER_H }} className="border-b border-border" />
+        <div className="flex-shrink-0 border-r border-border bg-surface-2" style={{ width: LABEL_W }}>
+          <div
+            style={{ height: RULER_H }}
+            className="flex items-center px-3 text-[10px] uppercase tracking-wider text-zinc-600 font-medium border-b border-border"
+          >
+            Layer
+          </div>
         </div>
 
         {/* Scrollable track content */}
@@ -405,7 +571,7 @@ export function Timeline() {
           {/* Layer tracks */}
           <div style={{ width: totalPx, minHeight: '100%' }}>
             {project.layers.length === 0 && (
-              <div className="text-xs text-zinc-700 text-center py-6">No layers</div>
+              <div className="text-xs text-zinc-700 text-center py-12">Import an SVG to see tracks here</div>
             )}
             {project.layers.map((layer) => (
               <LayerTrack
@@ -414,14 +580,14 @@ export function Timeline() {
                 frameZoom={frameZoom}
                 scrollLeft={scrollLeft}
                 totalPx={totalPx}
-                trackW={trackW}
+                totalFrames={project.totalFrames}
                 currentFrame={currentFrame}
                 expanded={expandedTimelineLayers.has(layer.id)}
                 selected={selectedLayerIds.includes(layer.id)}
                 onToggleExpand={() => toggleExpandedTimelineLayer(layer.id)}
                 onSelect={() => toggleSelectLayer(layer.id, false)}
                 onMove={handleMove}
-                onAddKeyframe={addKeyframe}
+                onSetRange={handleSetRange}
               />
             ))}
           </div>

@@ -34,13 +34,7 @@ function ToolButton({ tool, label, shortcut, active, onClick }: ToolButtonProps)
 
 const TOOLS: Array<{ tool: ToolType; label: string; shortcut: string }> = [
   { tool: 'select', label: 'Select / transform', shortcut: 'V' },
-  { tool: 'frame', label: 'Frame (artboard container)', shortcut: 'F' },
-  { tool: 'rect', label: 'Rectangle', shortcut: 'R' },
-  { tool: 'ellipse', label: 'Ellipse / circle', shortcut: 'O' },
-  { tool: 'pen', label: 'Pen / path draw', shortcut: 'P' },
-  { tool: 'text', label: 'Text', shortcut: 'T' },
-  { tool: 'image', label: 'Image (paste URL / upload)', shortcut: 'I' },
-  { tool: 'svg', label: 'Import SVG', shortcut: 'S' },
+  { tool: 'hand', label: 'Pan canvas', shortcut: 'H' },
 ];
 
 interface TopbarProps {

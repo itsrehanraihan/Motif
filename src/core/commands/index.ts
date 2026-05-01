@@ -243,4 +243,37 @@ export class DeleteLayerCommand implements Command {
   }
 }
 
+export class SetLayerRangeCommand implements Command {
+  readonly description = 'Set layer range';
+  private prev: { inPoint: number; outPoint: number } | null = null;
+
+  constructor(
+    private layerId: string,
+    private inPoint: number,
+    private outPoint: number,
+    private setProject: SetProjectFn,
+  ) {}
+
+  execute(): void {
+    this.setProject((draft) => {
+      const layer = draft.layers.find((l) => l.id === this.layerId);
+      if (!layer) return;
+      if (!this.prev) this.prev = { inPoint: layer.inPoint, outPoint: layer.outPoint };
+      layer.inPoint = this.inPoint;
+      layer.outPoint = this.outPoint;
+    });
+  }
+
+  undo(): void {
+    if (!this.prev) return;
+    const prev = this.prev;
+    this.setProject((draft) => {
+      const layer = draft.layers.find((l) => l.id === this.layerId);
+      if (!layer) return;
+      layer.inPoint = prev.inPoint;
+      layer.outPoint = prev.outPoint;
+    });
+  }
+}
+
 export type { Command };
