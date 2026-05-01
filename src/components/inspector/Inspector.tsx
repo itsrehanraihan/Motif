@@ -5,6 +5,7 @@ import { useHistoryStore } from '../../store/history';
 import { useKeyframes } from '../../hooks/useKeyframes';
 import { SetPropertyValueCommand } from '../../core/commands';
 import { interpolateTransform, interpolateNumber, interpolateColor, interpolateFill } from '../../core/interpolator';
+import { PresetsPanel } from './PresetsPanel';
 import type { Layer, LayerProperties, Transform, Color, FillValue } from '../../types';
 
 // ── Keyframe diamond toggle ──────────────────────────────────────────────────
@@ -312,37 +313,59 @@ function LayerInspector({ layer, frame }: LayerInspectorProps) {
 
 // ── Inspector panel ──────────────────────────────────────────────────────────
 
+type InspectorTab = 'props' | 'presets';
+
 export function Inspector() {
   const { project } = useProjectStore();
   const { selectedLayerIds, currentFrame } = useUIStore();
+  const [tab, setTab] = useState<InspectorTab>('presets');
 
   const selectedLayers = project.layers.filter((l) => selectedLayerIds.includes(l.id));
 
   return (
-    <aside className="w-56 bg-surface-1 border-l border-border flex-shrink-0 overflow-y-auto flex flex-col">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border flex-shrink-0">
-        <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Inspector</span>
-        {selectedLayers.length > 0 && (
-          <span className="text-xs text-zinc-700">{selectedLayers.length}</span>
-        )}
+    <aside className="w-64 bg-surface-1 border-l border-border flex-shrink-0 overflow-y-auto flex flex-col">
+      {/* Tab bar */}
+      <div className="flex border-b border-border flex-shrink-0">
+        {[
+          { key: 'presets' as const, label: 'Presets' },
+          { key: 'props' as const, label: 'Properties' },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`
+              flex-1 text-[11px] uppercase tracking-wider py-2 transition-colors
+              ${tab === key
+                ? 'text-white border-b-2 border-accent bg-surface-2'
+                : 'text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent'
+              }
+            `}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {selectedLayers.length === 0 && (
-        <div className="flex-1 flex items-center justify-center p-4">
-          <p className="text-xs text-zinc-700 text-center leading-relaxed">
-            Select a layer to inspect its properties
-          </p>
-        </div>
-      )}
+      {tab === 'presets' && <PresetsPanel />}
 
-      {selectedLayers.length === 1 && (
-        <LayerInspector layer={selectedLayers[0]} frame={currentFrame} />
-      )}
-
-      {selectedLayers.length > 1 && (
-        <div className="px-3 py-4 text-xs text-zinc-600">
-          {selectedLayers.length} layers selected.
-        </div>
+      {tab === 'props' && (
+        <>
+          {selectedLayers.length === 0 && (
+            <div className="flex-1 flex items-center justify-center p-4">
+              <p className="text-xs text-zinc-700 text-center leading-relaxed">
+                Select a layer to inspect its properties
+              </p>
+            </div>
+          )}
+          {selectedLayers.length === 1 && (
+            <LayerInspector layer={selectedLayers[0]} frame={currentFrame} />
+          )}
+          {selectedLayers.length > 1 && (
+            <div className="px-3 py-4 text-xs text-zinc-600">
+              {selectedLayers.length} layers selected.
+            </div>
+          )}
+        </>
       )}
     </aside>
   );

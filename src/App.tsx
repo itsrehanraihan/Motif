@@ -9,7 +9,7 @@ import { useProjectStore } from './store/project';
 import { useUIStore } from './store/ui';
 import { useHistoryStore } from './store/history';
 import { useKeyframes } from './hooks/useKeyframes';
-import { applyDrawOnAnimation } from './core/animation/defaultAnimations';
+import { applyPresetToLayers } from './core/animation/presets';
 import type { LayerProperties } from './types';
 
 // Parser worker import
@@ -48,14 +48,12 @@ export default function App() {
           warnings: string[];
         };
 
-        const animated = applyDrawOnAnimation(layers, {
+        const animated = applyPresetToLayers(layers, {
+          presetId: 'slide-in-up',
           fps: project.fps,
           totalFrames: project.totalFrames,
-          amplitudePx: 3,
-          amplitudeDeg: 4,
-          amplitudeScale: 0.04,
-          steps: 8,
-          staggerMs: 50,
+          durationMs: 600,
+          staggerMs: 80,
         });
 
         setProject((draft) => {
