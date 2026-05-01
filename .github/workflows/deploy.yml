@@ -27,6 +27,7 @@ jobs:
       - run: npm run build
         env:
           NODE_ENV: production
+          VITE_BASE: /Motif/
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:
