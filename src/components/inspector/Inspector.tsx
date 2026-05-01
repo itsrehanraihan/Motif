@@ -2,11 +2,46 @@ import React, { useState, useCallback } from 'react';
 import { useProjectStore } from '../../store/project';
 import { useUIStore } from '../../store/ui';
 import { useHistoryStore } from '../../store/history';
+import { useKeyframes } from '../../hooks/useKeyframes';
 import { SetPropertyValueCommand } from '../../core/commands';
-import { interpolateTransform, interpolateNumber } from '../../core/interpolator';
-import type { Layer, Transform, Color, FillValue } from '../../types';
+import { interpolateTransform, interpolateNumber, interpolateColor, interpolateFill } from '../../core/interpolator';
+import type { Layer, LayerProperties, Transform, Color, FillValue } from '../../types';
 
-// ── Shared inputs ────────────────────────────────────────────────────────────
+// ── Keyframe diamond toggle ──────────────────────────────────────────────────
+
+interface KFDiamondProps {
+  layerId: string;
+  propKey: keyof LayerProperties;
+}
+
+function KFDiamond({ layerId, propKey }: KFDiamondProps) {
+  const { hasKeyframeAt, toggleKeyframe } = useKeyframes();
+  const { currentFrame } = useUIStore();
+  const { project } = useProjectStore();
+  const layer = project.layers.find((l) => l.id === layerId);
+  const animated = (layer?.properties[propKey].keyframes.length ?? 0) > 1;
+  const onCurFrame = hasKeyframeAt(layerId, propKey, currentFrame);
+
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); toggleKeyframe(layerId, propKey); }}
+      title={onCurFrame ? 'Remove keyframe at current frame' : 'Add keyframe at current frame'}
+      className="flex-shrink-0 w-4 h-4 flex items-center justify-center transition-transform hover:scale-125"
+    >
+      <svg width="9" height="9" viewBox="0 0 9 9">
+        <rect
+          x="0.5" y="0.5" width="8" height="8"
+          transform="rotate(45, 4.5, 4.5)"
+          fill={onCurFrame ? '#6366f1' : 'none'}
+          stroke={onCurFrame ? '#6366f1' : animated ? '#a78bfa' : '#52525b'}
+          strokeWidth="1.5"
+        />
+      </svg>
+    </button>
+  );
+}
+
+// ── Number input ─────────────────────────────────────────────────────────────
 
 interface NumberInputProps {
   label: string;
@@ -25,7 +60,7 @@ function NumberInput({ label, value, onChange, step = 1, min, max, unit }: Numbe
 
   return (
     <div className="flex items-center gap-1">
-      <span className="text-[10px] text-zinc-600 w-10 flex-shrink-0 uppercase tracking-wide">{label}</span>
+      <span className="text-[10px] text-zinc-600 w-9 flex-shrink-0 uppercase tracking-wide">{label}</span>
       <div className="flex items-center flex-1 bg-surface-3 rounded border border-border focus-within:border-accent overflow-hidden">
         <input
           type="number"
@@ -56,10 +91,11 @@ function NumberInput({ label, value, onChange, step = 1, min, max, unit }: Numbe
   );
 }
 
-function SectionHeader({ title }: { title: string }) {
+function SectionHeader({ title, right }: { title: string; right?: React.ReactNode }) {
   return (
-    <div className="px-3 py-1 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-border mt-1">
-      {title}
+    <div className="flex items-center justify-between px-3 py-1 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-border mt-1">
+      <span>{title}</span>
+      {right}
     </div>
   );
 }
@@ -86,7 +122,7 @@ interface ColorInputProps {
 function ColorInput({ label, color, onChange }: ColorInputProps) {
   return (
     <div className="flex items-center gap-1">
-      <span className="text-[10px] text-zinc-600 w-10 flex-shrink-0 uppercase tracking-wide">{label}</span>
+      <span className="text-[10px] text-zinc-600 w-9 flex-shrink-0 uppercase tracking-wide">{label}</span>
       <div className="flex items-center gap-1.5 flex-1 bg-surface-3 rounded border border-border px-1.5 py-0.5 focus-within:border-accent">
         <input
           type="color"
@@ -108,25 +144,19 @@ function ColorInput({ label, color, onChange }: ColorInputProps) {
   );
 }
 
-// ── Transform panel ──────────────────────────────────────────────────────────
+// ── Property row with keyframe diamond ───────────────────────────────────────
 
-interface TransformPanelProps {
-  layer: Layer;
-  frame: number;
-  onCommit: (key: keyof Transform, val: number) => void;
+interface PropRowProps {
+  layerId: string;
+  propKey: keyof LayerProperties;
+  children: React.ReactNode;
 }
 
-function TransformPanel({ layer, frame, onCommit }: TransformPanelProps) {
-  const t = interpolateTransform(layer.properties.transform, frame);
+function PropRow({ layerId, propKey, children }: PropRowProps) {
   return (
-    <div className="px-3 py-2 flex flex-col gap-1.5">
-      <div className="grid grid-cols-2 gap-1.5">
-        <NumberInput label="X" value={t.x} onChange={(v) => onCommit('x', v)} step={0.5} />
-        <NumberInput label="Y" value={t.y} onChange={(v) => onCommit('y', v)} step={0.5} />
-        <NumberInput label="SX" value={t.scaleX * 100} onChange={(v) => onCommit('scaleX', v / 100)} step={1} unit="%" />
-        <NumberInput label="SY" value={t.scaleY * 100} onChange={(v) => onCommit('scaleY', v / 100)} step={1} unit="%" />
-      </div>
-      <NumberInput label="Rot" value={t.rotation} onChange={(v) => onCommit('rotation', v)} step={1} unit="°" />
+    <div className="flex items-center gap-1.5">
+      <KFDiamond layerId={layerId} propKey={propKey} />
+      <div className="flex-1 min-w-0">{children}</div>
     </div>
   );
 }
@@ -141,43 +171,46 @@ interface LayerInspectorProps {
 function LayerInspector({ layer, frame }: LayerInspectorProps) {
   const { setProject } = useProjectStore();
   const { execute } = useHistoryStore();
+  const { addKeyframe } = useKeyframes();
 
-  const makeCmd = useCallback(
-    <T,>(propKey: keyof import('../../types').LayerProperties, newVal: T, oldVal: T) =>
-      new SetPropertyValueCommand(propKey as string extends keyof import('../../types').LayerProperties ? typeof propKey : never, propKey, newVal, oldVal, setProject),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [layer.id, setProject],
+  // Commit helper: also update the keyframe value at currentFrame if one exists,
+  // otherwise update the static (single) keyframe.
+  const commitProp = useCallback(
+    <T,>(propKey: keyof LayerProperties, val: T) => {
+      const prop = layer.properties[propKey];
+      const existing = prop.keyframes.find((k) => k.frame === frame);
+      if (existing) {
+        // Update existing kf value via direct setProject (in-place is fine here; undo via SetProperty would replace static)
+        setProject((d) => {
+          const l = d.layers.find((x) => x.id === layer.id);
+          if (!l) return;
+          const p = l.properties[propKey] as unknown as { keyframes: { frame: number; value: T }[] };
+          const k = p.keyframes.find((kf) => kf.frame === frame);
+          if (k) k.value = val;
+        });
+      } else if (prop.keyframes.length <= 1) {
+        const cur = prop.keyframes[0]?.value as T;
+        execute(new SetPropertyValueCommand(layer.id, propKey, val, cur, setProject));
+      } else {
+        // Animated but no kf at current frame — add one with the new value
+        addKeyframe(layer.id, propKey, val);
+      }
+    },
+    [layer, frame, setProject, execute, addKeyframe],
   );
 
-  const commitTransform = (key: keyof Transform, val: number) => {
-    const cur = layer.properties.transform.keyframes[0]?.value ?? {
-      x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0, anchorY: 0,
-    };
-    execute(new SetPropertyValueCommand(layer.id, 'transform', { ...cur, [key]: val }, cur, setProject));
-  };
-
-  const commitNumber = (propKey: keyof import('../../types').LayerProperties, val: number) => {
-    const cur = layer.properties[propKey].keyframes[0]?.value as number ?? 0;
-    execute(new SetPropertyValueCommand(layer.id, propKey, val, cur, setProject));
-  };
-
-  const commitFill = (fill: FillValue) => {
-    const cur = layer.properties.fill.keyframes[0]?.value ?? ({ type: 'none' } as FillValue);
-    execute(new SetPropertyValueCommand(layer.id, 'fill', fill, cur, setProject));
-  };
-
-  const commitStrokeColor = (color: Color) => {
-    const cur = layer.properties.strokeColor.keyframes[0]?.value ?? { r: 0, g: 0, b: 0, a: 1 };
-    execute(new SetPropertyValueCommand(layer.id, 'strokeColor', color, cur, setProject));
-  };
-
+  const t = interpolateTransform(layer.properties.transform, frame);
   const opacity = interpolateNumber(layer.properties.opacity, frame, 100);
   const sw = interpolateNumber(layer.properties.strokeWidth, frame, 1);
-  const sc = layer.properties.strokeColor.keyframes[0]?.value ?? { r: 0, g: 0, b: 0, a: 1 };
-  const fill = layer.properties.fill.keyframes[0]?.value ?? ({ type: 'none' } as FillValue);
+  const sc = interpolateColor(layer.properties.strokeColor, frame);
+  const fill = interpolateFill(layer.properties.fill, frame);
   const fillColor = fill.type === 'solid' ? fill.color : { r: 180, g: 180, b: 180, a: 1 };
   const trimStart = interpolateNumber(layer.properties.trimStart, frame, 0);
   const trimEnd = interpolateNumber(layer.properties.trimEnd, frame, 100);
+
+  const updateTransformField = (key: keyof Transform, val: number) => {
+    commitProp<Transform>('transform', { ...t, [key]: val });
+  };
 
   return (
     <div className="flex flex-col">
@@ -192,51 +225,86 @@ function LayerInspector({ layer, frame }: LayerInspectorProps) {
 
       {/* Transform */}
       <SectionHeader title="Transform" />
-      <TransformPanel layer={layer} frame={frame} onCommit={commitTransform} />
+      <div className="px-3 py-2 flex flex-col gap-1.5">
+        <PropRow layerId={layer.id} propKey="transform">
+          <div className="grid grid-cols-2 gap-1.5">
+            <NumberInput label="X" value={t.x} onChange={(v) => updateTransformField('x', v)} step={0.5} />
+            <NumberInput label="Y" value={t.y} onChange={(v) => updateTransformField('y', v)} step={0.5} />
+            <NumberInput label="SX" value={t.scaleX * 100} onChange={(v) => updateTransformField('scaleX', v / 100)} step={1} unit="%" />
+            <NumberInput label="SY" value={t.scaleY * 100} onChange={(v) => updateTransformField('scaleY', v / 100)} step={1} unit="%" />
+          </div>
+        </PropRow>
+        <PropRow layerId={layer.id} propKey="transform">
+          <NumberInput label="Rot" value={t.rotation} onChange={(v) => updateTransformField('rotation', v)} step={1} unit="°" />
+        </PropRow>
+      </div>
 
       {/* Opacity */}
-      <div className="px-3 py-2 border-t border-border">
-        <NumberInput label="Opac" value={opacity} onChange={(v) => commitNumber('opacity', v)} step={1} min={0} max={100} unit="%" />
+      <SectionHeader title="Opacity" />
+      <div className="px-3 py-2">
+        <PropRow layerId={layer.id} propKey="opacity">
+          <NumberInput label="Opac" value={opacity} onChange={(v) => commitProp<number>('opacity', v)} step={1} min={0} max={100} unit="%" />
+        </PropRow>
       </div>
 
       {/* Fill */}
       <SectionHeader title="Fill" />
-      <div className="px-3 py-2">
-        <div className="flex items-center gap-1 mb-1.5">
-          <span className="text-[10px] text-zinc-600 w-10 uppercase tracking-wide">Type</span>
-          <select
-            value={fill.type}
-            onChange={(e) => {
-              const type = e.target.value as 'none' | 'solid';
-              commitFill(
-                type === 'none'
-                  ? { type: 'none' }
-                  : { type: 'solid', color: fillColor, opacity: 100 },
-              );
-            }}
-            className="flex-1 bg-surface-3 text-xs text-zinc-300 px-2 py-0.5 rounded border border-border outline-none"
-          >
-            <option value="none">None</option>
-            <option value="solid">Solid</option>
-          </select>
-        </div>
+      <div className="px-3 py-2 flex flex-col gap-1.5">
+        <PropRow layerId={layer.id} propKey="fill">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-zinc-600 w-9 uppercase tracking-wide">Type</span>
+            <select
+              value={fill.type}
+              onChange={(e) => {
+                const type = e.target.value as 'none' | 'solid';
+                commitProp<FillValue>(
+                  'fill',
+                  type === 'none'
+                    ? { type: 'none' }
+                    : { type: 'solid', color: fillColor, opacity: 100 },
+                );
+              }}
+              className="flex-1 bg-surface-3 text-xs text-zinc-300 px-2 py-0.5 rounded border border-border outline-none"
+            >
+              <option value="none">None</option>
+              <option value="solid">Solid</option>
+            </select>
+          </div>
+        </PropRow>
         {fill.type === 'solid' && (
-          <ColorInput label="Color" color={fillColor} onChange={(c) => commitFill({ type: 'solid', color: c, opacity: 100 })} />
+          <PropRow layerId={layer.id} propKey="fill">
+            <ColorInput label="Color" color={fillColor} onChange={(c) => commitProp<FillValue>('fill', { type: 'solid', color: c, opacity: 100 })} />
+          </PropRow>
         )}
       </div>
 
       {/* Stroke */}
       <SectionHeader title="Stroke" />
       <div className="px-3 py-2 flex flex-col gap-1.5">
-        <ColorInput label="Color" color={sc} onChange={commitStrokeColor} />
-        <NumberInput label="Width" value={sw} onChange={(v) => commitNumber('strokeWidth', v)} step={0.5} min={0} unit="px" />
+        <PropRow layerId={layer.id} propKey="strokeColor">
+          <ColorInput label="Color" color={sc} onChange={(c) => commitProp<Color>('strokeColor', c)} />
+        </PropRow>
+        <PropRow layerId={layer.id} propKey="strokeWidth">
+          <NumberInput label="Width" value={sw} onChange={(v) => commitProp<number>('strokeWidth', v)} step={0.5} min={0} unit="px" />
+        </PropRow>
       </div>
 
       {/* Path trim */}
-      <SectionHeader title="Trim" />
+      <SectionHeader title="Path Trim" />
       <div className="px-3 py-2 flex flex-col gap-1.5">
-        <NumberInput label="Start" value={trimStart} onChange={(v) => commitNumber('trimStart', v)} step={1} min={0} max={100} unit="%" />
-        <NumberInput label="End" value={trimEnd} onChange={(v) => commitNumber('trimEnd', v)} step={1} min={0} max={100} unit="%" />
+        <PropRow layerId={layer.id} propKey="trimStart">
+          <NumberInput label="Start" value={trimStart} onChange={(v) => commitProp<number>('trimStart', v)} step={1} min={0} max={100} unit="%" />
+        </PropRow>
+        <PropRow layerId={layer.id} propKey="trimEnd">
+          <NumberInput label="End" value={trimEnd} onChange={(v) => commitProp<number>('trimEnd', v)} step={1} min={0} max={100} unit="%" />
+        </PropRow>
+      </div>
+
+      {/* Hint */}
+      <div className="px-3 py-3 border-t border-border mt-2">
+        <p className="text-[10px] text-zinc-600 leading-relaxed">
+          ◆ Click a diamond to add/remove a keyframe at the playhead. Filled = keyframe at current frame. Outlined purple = animated.
+        </p>
       </div>
     </div>
   );
@@ -251,7 +319,7 @@ export function Inspector() {
   const selectedLayers = project.layers.filter((l) => selectedLayerIds.includes(l.id));
 
   return (
-    <aside className="w-52 bg-surface-1 border-l border-border flex-shrink-0 overflow-y-auto flex flex-col">
+    <aside className="w-56 bg-surface-1 border-l border-border flex-shrink-0 overflow-y-auto flex flex-col">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border flex-shrink-0">
         <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Inspector</span>
         {selectedLayers.length > 0 && (
