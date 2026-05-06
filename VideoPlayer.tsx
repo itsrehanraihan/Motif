@@ -1,790 +1,513 @@
-/**
- * Framer Video Player Component
- * Premium custom video player — drop into any Framer project.
- *
- * Features: play/pause, seek, volume (vertical slider), mute,
- * auto-hide controls, resume (localStorage), IntersectionObserver
- * auto-pause, keyboard shortcuts, mobile center-play button.
- */
-
-import React, {
-  useRef,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
-import { addPropertyControls, ControlType } from "framer";
+import * as React from "react"
+import { useRef, useState, useEffect } from "react"
+import { addPropertyControls, ControlType } from "framer"
 
 // ─── Icon System ──────────────────────────────────────────────────────────────
+// Each entry is an array of path `d` strings — supports multi-path icons.
+// To swap an icon, just replace the path here. Nothing else changes.
 
-interface IconDef {
-  viewBox: string;
-  paths: Array<{ d: string; fill?: string; fillRule?: string }>;
-}
-
-const ICONS: Record<string, IconDef> = {
-  play: {
-    viewBox: "0 0 24 24",
-    paths: [{ d: "M8 5v14l11-7z", fill: "currentColor" }],
-  },
-  pause: {
-    viewBox: "0 0 24 24",
-    paths: [{ d: "M6 19h4V5H6v14zm8-14v14h4V5h-4z", fill: "currentColor" }],
-  },
-  volume: {
-    viewBox: "0 0 24 24",
-    paths: [
-      {
-        d: "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z",
-        fill: "currentColor",
-      },
+const ICONS: Record<string, string[]> = {
+    play: [
+        "M19.2645 13.516C19.4959 13.3368 19.6833 13.1071 19.8122 12.8443C19.9411 12.5815 20.0082 12.2927 20.0082 12C20.0082 11.7073 19.9411 11.4185 19.8122 11.1557C19.6833 10.8929 19.4959 10.6631 19.2645 10.484C16.2667 8.16515 12.9196 6.33706 9.34847 5.06798L8.69547 4.83599C7.44747 4.39299 6.12847 5.23699 5.95947 6.52599C5.48747 10.1601 5.48747 13.8399 5.95947 17.474C6.12947 18.763 7.44747 19.607 8.69547 19.164L9.34847 18.932C12.9196 17.6629 16.2667 15.8348 19.2645 13.516Z",
     ],
-  },
-  mute: {
-    viewBox: "0 0 24 24",
-    paths: [
-      {
-        d: "M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z",
-        fill: "currentColor",
-      },
+    pause: [
+        "M6 5H10V19H6V5Z",
+        "M14 5H18V19H14V5Z",
     ],
-  },
-};
-
-interface IconProps {
-  name: keyof typeof ICONS;
-  size?: number;
-  color?: string;
-  style?: React.CSSProperties;
+    volume: [
+        "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z",
+    ],
+    mute: [
+        "M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z",
+    ],
 }
 
-function SvgIcon({ name, size = 20, color = "currentColor", style }: IconProps) {
-  const icon = ICONS[name];
-  if (!icon) return null;
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={icon.viewBox}
-      style={{ display: "block", flexShrink: 0, ...style }}
-      aria-hidden="true"
-    >
-      {icon.paths.map((p, i) => (
-        <path key={i} d={p.d} fill={color} />
-      ))}
-    </svg>
-  );
-}
-
-// ─── Utilities ────────────────────────────────────────────────────────────────
-
-function formatTime(s: number): string {
-  if (!isFinite(s) || isNaN(s)) return "0:00";
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
-
-const STORAGE_PREFIX = "framer_vp_";
-
-function saveResume(src: string, t: number) {
-  try {
-    localStorage.setItem(STORAGE_PREFIX + btoa(encodeURIComponent(src)), String(t));
-  } catch { /* storage unavailable */ }
-}
-
-function loadResume(src: string): number {
-  try {
-    const v = localStorage.getItem(STORAGE_PREFIX + btoa(encodeURIComponent(src)));
-    return v ? parseFloat(v) : 0;
-  } catch {
-    return 0;
-  }
-}
-
-// ─── Component Props ──────────────────────────────────────────────────────────
-
-interface VideoPlayerProps {
-  videoSrc?: string;
-  poster?: string;
-  accentColor?: string;
-  autoplay?: boolean;
-  loop?: boolean;
-  muted?: boolean;
-  hideDelay?: number;
-  borderRadius?: number;
-  controlRadius?: number;
-  buttonRadius?: number;
-  buttonPadding?: number;
-  showVolumeControl?: boolean;
-  showMobileCenterButton?: boolean;
+function Icon({ name, size = 22, color = "black" }: { name: string; size?: number; color?: string }) {
+    const paths = ICONS[name] || []
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block", flexShrink: 0 }} aria-hidden="true">
+            {paths.map((d, i) => <path key={i} d={d} fill={color} />)}
+        </svg>
+    )
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function VideoPlayer({
-  videoSrc = "",
-  poster = "",
-  accentColor = "#FF5733",
-  autoplay = false,
-  loop = false,
-  muted: initialMuted = false,
-  hideDelay = 3000,
-  borderRadius = 16,
-  controlRadius = 999,
-  buttonRadius = 999,
-  buttonPadding = 12,
-  showVolumeControl = true,
-  showMobileCenterButton = true,
-}: VideoPlayerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const progressBarRef = useRef<HTMLDivElement>(null);
-  const volumeTrackRef = useRef<HTMLDivElement>(null);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const seekingRef = useRef(false);
+export default function VideoPlayer(props) {
+    const {
+        videoSrc, poster, accent,
+        buttonPadding, buttonRadius, borderRadius, ControlborderRadius,
+        autoplay, loop, muted,
+    } = props
 
-  const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [muted, setMuted] = useState(initialMuted);
-  const [volume, setVolume] = useState(1);
-  const [showControls, setShowControls] = useState(true);
-  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  const [isDraggingProgress, setIsDraggingProgress] = useState(false);
-  const [isDraggingVolume, setIsDraggingVolume] = useState(false);
+    const videoRef       = useRef<HTMLVideoElement>(null)
+    const containerRef   = useRef<HTMLDivElement>(null)
+    const volumeTrackRef = useRef<HTMLDivElement>(null)
+    const hideTimeout    = useRef<ReturnType<typeof setTimeout>>()
+    const isDraggingVol  = useRef(false)
 
-  // ── Mobile detection
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
+    const [isPlaying,        setIsPlaying]        = useState(false)
+    const [progress,         setProgress]         = useState(0)
+    const [duration,         setDuration]         = useState(0)
+    const [currentTime,      setCurrentTime]      = useState(0)
+    const [isSeeking,        setIsSeeking]        = useState(false)
+    const [showControls,     setShowControls]     = useState(true)
+    const [isMuted,          setIsMuted]          = useState(muted)
+    const [volume,           setVolume]           = useState(1)
+    const [showVolumeSlider, setShowVolumeSlider] = useState(false)
+    const [containerWidth,   setContainerWidth]   = useState(580)
 
-  // ── Restore saved position
-  useEffect(() => {
-    if (!videoSrc) return;
-    const saved = loadResume(videoSrc);
-    if (saved > 0 && videoRef.current) videoRef.current.currentTime = saved;
-  }, [videoSrc]);
+    // ── Responsive sizing — derived from the component's own rendered width.
+    //    Same layout at every size, just proportionally smaller.
+    //    Hide the time display only at very small sizes (<= 290px).
+    const scale      = Math.min(1, Math.max(0.6, containerWidth / 560))
+    const iconSize   = Math.round(scale * 22)
+    const fontSize   = Math.round(scale * 15)
+    const ctrlGap    = Math.round(scale * 16)
+    const showTime   = containerWidth > 290
 
-  // ── Autoplay
-  useEffect(() => {
-    if (autoplay && videoRef.current) videoRef.current.play().catch(() => {});
-  }, [autoplay, videoSrc]);
+    // ── Watch container width
+    useEffect(() => {
+        const el = containerRef.current
+        if (!el) return
+        const ro = new ResizeObserver(([entry]) => setContainerWidth(entry.contentRect.width))
+        ro.observe(el)
+        return () => ro.disconnect()
+    }, [])
 
-  // ── Auto-pause when scrolled offscreen
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => { if (!entry.isIntersecting) video.pause(); },
-      { threshold: 0.2 }
-    );
-    obs.observe(video);
-    return () => obs.disconnect();
-  }, []);
+    // ================================
+    // VIDEO EVENTS
+    // ================================
+    useEffect(() => {
+        const video = videoRef.current
+        if (!video) return
 
-  // ── Controls auto-hide
-  const resetHideTimer = useCallback(() => {
-    setShowControls(true);
-    clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => {
-      setShowControls(false);
-    }, hideDelay);
-  }, [hideDelay]);
+        const updateDuration = () => {
+            if (!isNaN(video.duration) && video.duration !== Infinity)
+                setDuration(video.duration)
+        }
+        const onTimeUpdate = () => {
+            if (!video.duration || isNaN(video.duration) || isSeeking) return
+            setCurrentTime(video.currentTime)
+            setProgress((video.currentTime / video.duration) * 100)
+        }
+        const onEnded = () => setIsPlaying(false)
 
-  useEffect(() => {
-    resetHideTimer();
-    return () => clearTimeout(hideTimerRef.current);
-  }, [resetHideTimer]);
+        video.addEventListener("loadedmetadata", updateDuration)
+        video.addEventListener("durationchange",  updateDuration)
+        video.addEventListener("timeupdate",      onTimeUpdate)
+        video.addEventListener("ended",           onEnded)
+        return () => {
+            video.removeEventListener("loadedmetadata", updateDuration)
+            video.removeEventListener("durationchange",  updateDuration)
+            video.removeEventListener("timeupdate",      onTimeUpdate)
+            video.removeEventListener("ended",           onEnded)
+        }
+    }, [isSeeking])
 
-  // Always show controls when paused
-  useEffect(() => {
-    if (!playing) setShowControls(true);
-  }, [playing]);
+    // ================================
+    // AUTOPLAY / LOOP / MUTED
+    // ================================
+    useEffect(() => {
+        const video = videoRef.current
+        if (!video) return
+        video.loop  = loop
+        video.muted = muted
+        setIsMuted(muted)
+        if (autoplay) {
+            video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
+        }
+    }, [autoplay, loop, muted])
 
-  // ── Video event callbacks
-  const handleTimeUpdate = useCallback(() => {
-    if (seekingRef.current || !videoRef.current) return;
-    const t = videoRef.current.currentTime;
-    setCurrentTime(t);
-    if (videoSrc) saveResume(videoSrc, t);
-  }, [videoSrc]);
+    // ================================
+    // RESUME PLAYBACK
+    // ================================
+    useEffect(() => {
+        const video = videoRef.current
+        if (!video || !videoSrc) return
+        const saved = localStorage.getItem(videoSrc)
+        if (saved) video.currentTime = Number(saved)
+        const save = () => localStorage.setItem(videoSrc, String(video.currentTime))
+        video.addEventListener("timeupdate", save)
+        return () => video.removeEventListener("timeupdate", save)
+    }, [videoSrc])
 
-  const handleLoadedMetadata = useCallback(() => {
-    if (!videoRef.current) return;
-    setDuration(videoRef.current.duration);
-    const saved = loadResume(videoSrc);
-    if (saved > 0) videoRef.current.currentTime = saved;
-  }, [videoSrc]);
+    // ================================
+    // AUTO-HIDE CONTROLS
+    // ================================
+    const handleActivity = () => {
+        setShowControls(true)
+        clearTimeout(hideTimeout.current)
+        hideTimeout.current = setTimeout(() => setShowControls(false), 2500)
+    }
 
-  const handleEnded = useCallback(() => {
-    setPlaying(false);
-    if (!loop && videoSrc) saveResume(videoSrc, 0);
-  }, [loop, videoSrc]);
+    // ================================
+    // PLAY / PAUSE
+    // ================================
+    const toggle = () => {
+        const video = videoRef.current
+        if (!video) return
+        if (video.paused) {
+            video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
+        } else {
+            video.pause()
+            setIsPlaying(false)
+        }
+    }
 
-  // ── Play / Pause
-  const togglePlay = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) v.play().catch(() => {});
-    else v.pause();
-    resetHideTimer();
-  }, [resetHideTimer]);
+    // ================================
+    // SEEK
+    // ================================
+    const handleSeek = (clientX: number, rect: DOMRect) => {
+        const video = videoRef.current
+        if (!video || !duration) return
+        const pct  = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+        const time = pct * duration
+        video.currentTime = time
+        setCurrentTime(time)
+        setProgress(pct * 100)
+    }
 
-  // ── Mute
-  const toggleMute = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.muted = !v.muted;
-    setMuted(v.muted);
-  }, []);
+    const onMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        setIsSeeking(true)
+        handleSeek(e.clientX, rect)
+        const move = (ev: MouseEvent)  => handleSeek(ev.clientX, rect)
+        const up   = ()                => { setIsSeeking(false); window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up) }
+        window.addEventListener("mousemove", move)
+        window.addEventListener("mouseup",   up)
+    }
 
-  // ── Volume level setter
-  const applyVolume = useCallback((pct: number) => {
-    const v = videoRef.current;
-    if (!v) return;
-    const clamped = Math.max(0, Math.min(1, pct));
-    v.volume = clamped;
-    setVolume(clamped);
-    v.muted = clamped === 0;
-    setMuted(clamped === 0);
-  }, []);
+    const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        setIsSeeking(true)
+        handleSeek(e.touches[0].clientX, rect)
+        const move = (ev: TouchEvent) => handleSeek(ev.touches[0].clientX, rect)
+        const up   = ()               => { setIsSeeking(false); window.removeEventListener("touchmove", move); window.removeEventListener("touchend", up) }
+        window.addEventListener("touchmove", move)
+        window.addEventListener("touchend",  up)
+    }
 
-  // ── Progress bar drag
-  const pctFromProgressEvent = useCallback(
-    (clientX: number) => {
-      const bar = progressBarRef.current;
-      if (!bar) return 0;
-      const rect = bar.getBoundingClientRect();
-      return (clientX - rect.left) / rect.width;
-    },
-    []
-  );
+    // ================================
+    // VOLUME
+    // ================================
+    const setVolumeLevel = (pct: number) => {
+        const clamped = Math.max(0, Math.min(1, pct))
+        const video   = videoRef.current
+        if (video) { video.volume = clamped; video.muted = clamped === 0 }
+        setVolume(clamped)
+        setIsMuted(clamped === 0)
+    }
 
-  const seekToPct = useCallback(
-    (pct: number) => {
-      const v = videoRef.current;
-      if (!v || !duration) return;
-      const t = Math.max(0, Math.min(1, pct)) * duration;
-      v.currentTime = t;
-      setCurrentTime(t);
-    },
-    [duration]
-  );
+    const volumeFromPointer = (clientY: number): number => {
+        const track = volumeTrackRef.current
+        if (!track) return volume
+        const rect = track.getBoundingClientRect()
+        return 1 - (clientY - rect.top) / rect.height
+    }
 
-  const handleProgressPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.currentTarget.setPointerCapture(e.pointerId);
-      seekingRef.current = true;
-      setIsDraggingProgress(true);
-      seekToPct(pctFromProgressEvent(e.clientX));
-    },
-    [seekToPct, pctFromProgressEvent]
-  );
+    const toggleMute = () => {
+        const video = videoRef.current
+        if (!video) return
+        video.muted = !video.muted
+        setIsMuted(video.muted)
+    }
 
-  const handleProgressPointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!isDraggingProgress) return;
-      seekToPct(pctFromProgressEvent(e.clientX));
-    },
-    [isDraggingProgress, seekToPct, pctFromProgressEvent]
-  );
+    const handleVolumePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        e.stopPropagation()
+        e.currentTarget.setPointerCapture(e.pointerId)
+        isDraggingVol.current = true
+        setVolumeLevel(volumeFromPointer(e.clientY))
+    }
+    const handleVolumePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!isDraggingVol.current) return
+        setVolumeLevel(volumeFromPointer(e.clientY))
+    }
+    const handleVolumePointerUp = () => { isDraggingVol.current = false }
 
-  const handleProgressPointerUp = useCallback(() => {
-    seekingRef.current = false;
-    setIsDraggingProgress(false);
-  }, []);
+    // ================================
+    // KEYBOARD SHORTCUTS
+    // ================================
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const video = videoRef.current
+            if (!video) return
+            if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement).tagName)) return
 
-  // ── Volume slider drag (vertical)
-  const pctFromVolumeEvent = useCallback((clientY: number) => {
-    const bar = volumeTrackRef.current;
-    if (!bar) return 0;
-    const rect = bar.getBoundingClientRect();
-    // Top = 100%, bottom = 0%
-    return 1 - (clientY - rect.top) / rect.height;
-  }, []);
+            if (e.code === "Space")       { e.preventDefault(); toggle() }
+            if (e.code === "ArrowRight")  video.currentTime = Math.min(video.currentTime + 5, duration)
+            if (e.code === "ArrowLeft")   video.currentTime = Math.max(video.currentTime - 5, 0)
+            if (e.code === "ArrowUp")     { e.preventDefault(); setVolumeLevel(video.volume + 0.1) }
+            if (e.code === "ArrowDown")   { e.preventDefault(); setVolumeLevel(video.volume - 0.1) }
+            if (e.key.toLowerCase() === "m") toggleMute()
+            if (e.key.toLowerCase() === "f") {
+                if (!document.fullscreenElement) containerRef.current?.requestFullscreen?.()
+                else document.exitFullscreen?.()
+            }
+        }
+        window.addEventListener("keydown", onKey)
+        return () => window.removeEventListener("keydown", onKey)
+    }, [duration])
 
-  const handleVolumePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.stopPropagation();
-      e.currentTarget.setPointerCapture(e.pointerId);
-      setIsDraggingVolume(true);
-      applyVolume(pctFromVolumeEvent(e.clientY));
-    },
-    [applyVolume, pctFromVolumeEvent]
-  );
+    // ================================
+    // AUTO-PAUSE OFFSCREEN
+    // ================================
+    useEffect(() => {
+        const video = videoRef.current
+        if (!video) return
+        const observer = new IntersectionObserver(([entry]) => {
+            if (!entry.isIntersecting) { video.pause(); setIsPlaying(false) }
+        })
+        observer.observe(video)
+        return () => observer.disconnect()
+    }, [])
 
-  const handleVolumePointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!isDraggingVolume) return;
-      applyVolume(pctFromVolumeEvent(e.clientY));
-    },
-    [isDraggingVolume, applyVolume, pctFromVolumeEvent]
-  );
+    // ================================
+    // FORMAT TIME
+    // ================================
+    const format = (t: number) => {
+        if (!t || isNaN(t)) return "00:00"
+        const m = Math.floor(t / 60)
+        const s = Math.floor(t % 60)
+        return `${m}:${s < 10 ? "0" : ""}${s}`
+    }
 
-  const handleVolumePointerUp = useCallback(() => {
-    setIsDraggingVolume(false);
-  }, []);
+    const effectiveVolPct = isMuted ? 0 : volume * 100
 
-  // ── Keyboard shortcuts
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === "input" || tag === "textarea" || tag === "select") return;
+    // ── Pill button base style (shared by play + volume buttons)
+    const pillBtn: React.CSSProperties = {
+        display: "flex",
+        padding: buttonPadding,
+        justifyContent: "center",
+        alignItems: "center",
+        borderRadius: buttonRadius,
+        background: "rgba(245, 245, 245, 0.90)",
+        cursor: "pointer",
+        flexShrink: 0,
+    }
 
-      const v = videoRef.current;
-      switch (e.key) {
-        case " ":
-          e.preventDefault();
-          togglePlay();
-          break;
-        case "ArrowLeft":
-          e.preventDefault();
-          if (v) { v.currentTime = Math.max(0, v.currentTime - 5); setCurrentTime(v.currentTime); }
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          if (v) { v.currentTime = Math.min(duration, v.currentTime + 5); setCurrentTime(v.currentTime); }
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          applyVolume(volume + 0.1);
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          applyVolume(volume - 0.1);
-          break;
-        case "m":
-        case "M":
-          toggleMute();
-          break;
-        case "f":
-        case "F":
-          if (containerRef.current) {
-            if (document.fullscreenElement) document.exitFullscreen();
-            else containerRef.current.requestFullscreen?.();
-          }
-          break;
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, toggleMute, applyVolume, volume, duration]);
-
-  // ── Derived values
-  const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const effectiveVolumePct = muted ? 0 : volume * 100;
-  const controlsVisible = showControls || !playing;
-
-  // ── Styles (memoised to avoid object churn)
-  const styles = useMemo(() => ({
-    container: {
-      position: "relative",
-      width: "100%",
-      height: "100%",
-      borderRadius,
-      overflow: "hidden",
-      background: "#000",
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
-      userSelect: "none",
-    } as React.CSSProperties,
-
-    video: {
-      width: "100%",
-      height: "100%",
-      display: "block",
-      objectFit: "cover",
-      cursor: "pointer",
-    } as React.CSSProperties,
-
-    // Invisible full-area layer to catch mouse-move for hide-timer without blocking video click
-    interactionLayer: {
-      position: "absolute",
-      inset: 0,
-      zIndex: 1,
-    } as React.CSSProperties,
-
-    // Bottom controls overlay
-    overlay: {
-      position: "absolute",
-      inset: 0,
-      zIndex: 2,
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "flex-end",
-      alignItems: "center",
-      paddingBottom: 20,
-      transition: "opacity 0.3s ease",
-      opacity: controlsVisible ? 1 : 0,
-      pointerEvents: controlsVisible ? "auto" : "none",
-    } as React.CSSProperties,
-
-    controlBar: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      background: "rgba(255,255,255,0.92)",
-      backdropFilter: "blur(16px)",
-      WebkitBackdropFilter: "blur(16px)",
-      borderRadius: controlRadius,
-      padding: "8px 16px 8px 8px",
-      boxShadow: "0 4px 28px rgba(0,0,0,0.16), 0 1px 4px rgba(0,0,0,0.08)",
-      width: "calc(100% - 48px)",
-      maxWidth: 880,
-      boxSizing: "border-box",
-    } as React.CSSProperties,
-
-    playBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: buttonRadius,
-      border: "none",
-      background: "rgba(220,220,220,0.8)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      cursor: "pointer",
-      flexShrink: 0,
-      padding: buttonPadding,
-      transition: "background 0.15s",
-      outline: "none",
-    } as React.CSSProperties,
-
-    progressTrack: {
-      flex: 1,
-      height: 6,
-      borderRadius: 999,
-      background: "rgba(0,0,0,0.1)",
-      cursor: "pointer",
-      position: "relative",
-      touchAction: "none",
-    } as React.CSSProperties,
-
-    volumeBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 999,
-      border: "none",
-      background: "transparent",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      cursor: "pointer",
-      flexShrink: 0,
-      padding: 0,
-      color: "#555",
-      outline: "none",
-      position: "relative",
-    } as React.CSSProperties,
-
-    timeDisplay: {
-      fontSize: 13,
-      fontWeight: 500,
-      letterSpacing: "-0.2px",
-      whiteSpace: "nowrap",
-      flexShrink: 0,
-      color: "#333",
-    } as React.CSSProperties,
-
-    // Vertical volume slider pill
-    volumePill: {
-      position: "absolute",
-      bottom: "calc(100% + 8px)",
-      left: "50%",
-      transform: "translateX(-50%)",
-      width: 36,
-      height: 110,
-      borderRadius: 999,
-      background: "rgba(255,255,255,0.96)",
-      boxShadow: "0 4px 20px rgba(0,0,0,0.16), 0 1px 4px rgba(0,0,0,0.06)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: "12px 0",
-      boxSizing: "border-box",
-      zIndex: 30,
-    } as React.CSSProperties,
-
-    volumeTrack: {
-      width: 6,
-      height: "100%",
-      borderRadius: 999,
-      background: "rgba(0,0,0,0.08)",
-      position: "relative",
-      cursor: "pointer",
-      touchAction: "none",
-      overflow: "hidden",
-    } as React.CSSProperties,
-
-    centerPlayBtn: {
-      position: "absolute",
-      top: "50%",
-      left: "50%",
-      transform: "translate(-50%, -50%)",
-      width: 72,
-      height: 72,
-      borderRadius: "50%",
-      border: "none",
-      background: "rgba(255,255,255,0.9)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      cursor: "pointer",
-      zIndex: 5,
-      boxShadow: "0 6px 24px rgba(0,0,0,0.22)",
-      outline: "none",
-    } as React.CSSProperties,
-  }), [
-    borderRadius, controlRadius, buttonRadius, buttonPadding,
-    controlsVisible,
-  ]);
-
-  return (
-    <div
-      ref={containerRef}
-      style={styles.container}
-      onMouseMove={resetHideTimer}
-      onTouchStart={resetHideTimer}
-    >
-      {/* Video */}
-      <video
-        ref={videoRef}
-        src={videoSrc || undefined}
-        poster={poster || undefined}
-        loop={loop}
-        muted={muted}
-        playsInline
-        style={styles.video}
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={handleLoadedMetadata}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={handleEnded}
-        onClick={togglePlay}
-      />
-
-      {/* Mobile center play button */}
-      {isMobile && showMobileCenterButton && !playing && (
-        <button style={styles.centerPlayBtn} onClick={togglePlay} aria-label="Play">
-          <SvgIcon name="play" size={30} color="#1a1a1a" />
-        </button>
-      )}
-
-      {/* Controls overlay */}
-      <div style={styles.overlay}>
-        <div style={styles.controlBar}>
-
-          {/* Play / Pause — hide on mobile (center button handles it) */}
-          {!isMobile && (
-            <button
-              style={styles.playBtn}
-              onClick={togglePlay}
-              aria-label={playing ? "Pause" : "Play"}
-            >
-              <SvgIcon name={playing ? "pause" : "play"} size={18} color="#1a1a1a" />
-            </button>
-          )}
-
-          {/* Progress bar */}
-          <div
-            ref={progressBarRef}
-            style={styles.progressTrack}
-            onPointerDown={handleProgressPointerDown}
-            onPointerMove={handleProgressPointerMove}
-            onPointerUp={handleProgressPointerUp}
-            aria-label="Seek"
-            role="slider"
-            aria-valuenow={Math.round(progressPct)}
-          >
-            {/* Fill — no thumb dot, just the rounded bar */}
-            <div
-              style={{
-                height: "100%",
-                width: `${progressPct}%`,
-                borderRadius: 999,
-                background: `linear-gradient(90deg, ${accentColor}52, ${accentColor})`,
-                transition: isDraggingProgress ? "none" : "width 0.08s linear",
-                pointerEvents: "none",
-              }}
+    return (
+        <div
+            ref={containerRef}
+            onMouseMove={handleActivity}
+            onTouchStart={handleActivity}
+            style={{ width: "100%", height: "100%", position: "relative", borderRadius, overflow: "hidden" }}
+        >
+            {/* VIDEO */}
+            <video
+                ref={videoRef}
+                src={videoSrc}
+                playsInline
+                muted={muted}
+                preload="metadata"
+                style={{ width: "100%", height: "100%", objectFit: "cover", border: "none", outline: "none" }}
             />
-          </div>
 
-          {/* Volume control */}
-          {showVolumeControl && (
-            // Outer wrapper owns the hover zone — covers both pill + button so
-            // mousing between them never triggers a leave event.
-            <div
-              style={{ position: "relative", flexShrink: 0 }}
-              onMouseEnter={() => { if (!isMobile) setShowVolumeSlider(true); }}
-              onMouseLeave={() => { if (!isMobile) setShowVolumeSlider(false); }}
-            >
-              {/* Floating vertical slider — desktop hover, mobile tap */}
-              {showVolumeSlider && (
-                <div style={styles.volumePill}>
-                  {/* Transparent 8px bridge at the bottom closes the gap to the button */}
-                  <div style={{
-                    position: "absolute",
-                    bottom: -8,
-                    left: 0,
-                    right: 0,
-                    height: 8,
-                  }} />
-                  <div
-                    ref={volumeTrackRef}
-                    style={styles.volumeTrack}
-                    onPointerDown={handleVolumePointerDown}
-                    onPointerMove={handleVolumePointerMove}
-                    onPointerUp={handleVolumePointerUp}
-                  >
-                    {/* Fill (bottom-up) */}
-                    <div
-                      style={{
-                        position: "absolute",
-                        bottom: 0,
-                        left: 0,
-                        width: "100%",
-                        height: `${effectiveVolumePct}%`,
-                        borderRadius: 999,
-                        background: `linear-gradient(180deg, ${accentColor}, ${accentColor}52)`,
-                        transition: isDraggingVolume ? "none" : "height 0.12s",
-                        pointerEvents: "none",
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Speaker button */}
-              <button
-                style={styles.volumeBtn}
-                onClick={isMobile ? () => setShowVolumeSlider((v) => !v) : toggleMute}
-                aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
-              >
-                <SvgIcon
-                  name={muted || volume === 0 ? "mute" : "volume"}
-                  size={20}
-                  color="#555"
+            {/* POSTER */}
+            {!isPlaying && poster && (
+                <img
+                    src={poster}
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none" }}
                 />
-              </button>
-            </div>
-          )}
+            )}
 
-          {/* Time — frosted pill matching the play button style */}
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            background: "rgba(245,245,245,0.9)",
-            border: "1px solid rgba(255,255,255,0.9)",
-            borderRadius: buttonRadius,
-            padding: "0 14px",
-            height: 44,
-            flexShrink: 0,
-          }}>
-            <span style={{ ...styles.timeDisplay, fontWeight: 600, color: "#1a1a1a" }}>
-              {formatTime(currentTime)}
-            </span>
-            <span style={{ ...styles.timeDisplay, color: "#979797", fontWeight: 400 }}>
-              {" "}/ {formatTime(duration)}
-            </span>
-          </div>
+            {/* CONTROLS */}
+            <div
+                style={{
+                    position: "absolute",
+                    bottom: 20,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    display: "flex",
+                    padding: 10,
+                    alignItems: "center",
+                    gap: ctrlGap,
+                    borderRadius: ControlborderRadius,
+                    background: "#FFF",
+                    // Always fill available width, constrained to 600px max.
+                    // Items inside scale via iconSize / fontSize / gap.
+                    width: "calc(100% - 40px)",
+                    maxWidth: 600,
+                    boxSizing: "border-box",
+                    opacity: showControls ? 1 : 0,
+                    transition: "opacity 0.3s ease",
+                }}
+            >
+                {/* PLAY */}
+                <div onClick={toggle} style={pillBtn}>
+                    <Icon name={isPlaying ? "pause" : "play"} size={iconSize} />
+                </div>
+
+                {/* PROGRESS */}
+                <div
+                    onMouseDown={onMouseDown}
+                    onTouchStart={onTouchStart}
+                    style={{ flex: 1, height: 8, borderRadius: 999, background: "#F5F5F5", overflow: "hidden", cursor: "pointer" }}
+                >
+                    <div
+                        style={{
+                            width: `${progress}%`,
+                            height: "100%",
+                            borderRadius: 999,
+                            background: accent,
+                            transition: isSeeking ? "none" : "width 0.05s linear",
+                        }}
+                    />
+                </div>
+
+                {/* VOLUME — outer div owns the entire hover zone (pill + button)
+                    so mousing between them never triggers a leave.
+                    Transparent 8px bridge closes the gap at the bottom of the pill. */}
+                <div
+                    style={{ position: "relative", flexShrink: 0 }}
+                    onMouseEnter={() => setShowVolumeSlider(true)}
+                    onMouseLeave={() => setShowVolumeSlider(false)}
+                >
+                    {showVolumeSlider && (
+                        <div
+                            style={{
+                                position: "absolute",
+                                bottom: "calc(100% + 8px)",
+                                left: "50%",
+                                transform: "translateX(-50%)",
+                                width: 32,
+                                height: 100,
+                                borderRadius: 999,
+                                background: "#FFF",
+                                boxShadow: "0 4px 20px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: "10px 0",
+                                boxSizing: "border-box",
+                                zIndex: 20,
+                            }}
+                        >
+                            {/* Transparent bridge — fills the 8px gap so mouse-leave never fires mid-travel */}
+                            <div style={{ position: "absolute", bottom: -8, left: 0, right: 0, height: 8 }} />
+
+                            {/* Vertical track */}
+                            <div
+                                ref={volumeTrackRef}
+                                onPointerDown={handleVolumePointerDown}
+                                onPointerMove={handleVolumePointerMove}
+                                onPointerUp={handleVolumePointerUp}
+                                style={{
+                                    width: 6,
+                                    height: "100%",
+                                    borderRadius: 999,
+                                    background: "#F5F5F5",
+                                    position: "relative",
+                                    overflow: "hidden",
+                                    cursor: "pointer",
+                                    touchAction: "none",
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        position: "absolute",
+                                        bottom: 0,
+                                        left: 0,
+                                        width: "100%",
+                                        height: `${effectiveVolPct}%`,
+                                        borderRadius: 999,
+                                        background: accent,
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Speaker button — click mutes/unmutes, hover shows slider */}
+                    <div onClick={toggleMute} style={pillBtn}>
+                        <Icon name={isMuted || volume === 0 ? "mute" : "volume"} size={iconSize} />
+                    </div>
+                </div>
+
+                {/* TIME — hidden below 290px container width */}
+                {showTime && (
+                    <div
+                        style={{
+                            alignSelf: "stretch",
+                            display: "flex",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            gap: 4,
+                            padding: "0 10px",
+                            borderRadius: buttonRadius,
+                            border: "1px solid #FFF",
+                            background: "rgba(245, 245, 245, 0.90)",
+                            fontFamily: "General Sans, sans-serif",
+                            fontSize,
+                            fontWeight: 500,
+                            letterSpacing: "-0.02em",
+                            lineHeight: "120%",
+                            boxSizing: "border-box",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                        }}
+                    >
+                        <span style={{ color: "#979797" }}>{format(currentTime)}</span>
+                        <span style={{ color: "#979797" }}>/</span>
+                        <span style={{ color: "#000" }}>{format(duration)}</span>
+                    </div>
+                )}
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    )
 }
 
 // ─── Framer Property Controls ─────────────────────────────────────────────────
 
 addPropertyControls(VideoPlayer, {
-  videoSrc: {
-    type: ControlType.File,
-    title: "Video",
-    allowedFileTypes: ["mp4", "webm", "ogg", "mov"],
-  },
-  poster: {
-    type: ControlType.Image,
-    title: "Poster",
-  },
-  accentColor: {
-    type: ControlType.Color,
-    title: "Accent Color",
-    defaultValue: "#FF5733",
-  },
-  autoplay: {
-    type: ControlType.Boolean,
-    title: "Autoplay",
-    defaultValue: false,
-    enabledTitle: "On",
-    disabledTitle: "Off",
-  },
-  loop: {
-    type: ControlType.Boolean,
-    title: "Loop",
-    defaultValue: false,
-    enabledTitle: "On",
-    disabledTitle: "Off",
-  },
-  muted: {
-    type: ControlType.Boolean,
-    title: "Start Muted",
-    defaultValue: false,
-    enabledTitle: "Yes",
-    disabledTitle: "No",
-  },
-  hideDelay: {
-    type: ControlType.Number,
-    title: "Hide Delay (ms)",
-    defaultValue: 3000,
-    min: 500,
-    max: 10000,
-    step: 100,
-    displayStepper: true,
-  },
-  borderRadius: {
-    type: ControlType.Number,
-    title: "Border Radius",
-    defaultValue: 16,
-    min: 0,
-    max: 64,
-  },
-  controlRadius: {
-    type: ControlType.Number,
-    title: "Bar Radius",
-    defaultValue: 999,
-    min: 0,
-    max: 999,
-  },
-  buttonRadius: {
-    type: ControlType.Number,
-    title: "Button Radius",
-    defaultValue: 999,
-    min: 0,
-    max: 999,
-  },
-  buttonPadding: {
-    type: ControlType.Number,
-    title: "Button Padding",
-    defaultValue: 12,
-    min: 4,
-    max: 24,
-  },
-  showVolumeControl: {
-    type: ControlType.Boolean,
-    title: "Volume Control",
-    defaultValue: true,
-    enabledTitle: "Show",
-    disabledTitle: "Hide",
-  },
-  showMobileCenterButton: {
-    type: ControlType.Boolean,
-    title: "Mobile Play Button",
-    defaultValue: true,
-    enabledTitle: "Show",
-    disabledTitle: "Hide",
-  },
-});
+    videoSrc: {
+        type: ControlType.File,
+        title: "Video",
+        allowedFileTypes: ["mp4", "webm", "mov"],
+    },
+    poster: {
+        type: ControlType.Image,
+        title: "Poster",
+    },
+    accent: {
+        type: ControlType.Color,
+        title: "Accent",
+        defaultValue: "#FF4806",
+    },
+    autoplay: {
+        type: ControlType.Boolean,
+        defaultValue: false,
+    },
+    loop: {
+        type: ControlType.Boolean,
+        defaultValue: false,
+    },
+    muted: {
+        type: ControlType.Boolean,
+        defaultValue: true,
+    },
+    buttonPadding: {
+        type: ControlType.Number,
+        defaultValue: 16,
+        min: 8,
+        max: 40,
+    },
+    buttonRadius: {
+        type: ControlType.Number,
+        defaultValue: 20,
+        min: 0,
+        max: 40,
+    },
+    borderRadius: {
+        type: ControlType.Number,
+        defaultValue: 24,
+        min: 0,
+        max: 40,
+    },
+    ControlborderRadius: {
+        type: ControlType.Number,
+        defaultValue: 32,
+        min: 0,
+        max: 40,
+    },
+})
