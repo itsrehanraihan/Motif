@@ -601,32 +601,14 @@ export default function VideoPlayer({
             role="slider"
             aria-valuenow={Math.round(progressPct)}
           >
-            {/* Fill */}
+            {/* Fill — no thumb dot, just the rounded bar */}
             <div
               style={{
                 height: "100%",
                 width: `${progressPct}%`,
                 borderRadius: 999,
-                background: `linear-gradient(90deg, ${accentColor}bb, ${accentColor})`,
+                background: `linear-gradient(90deg, ${accentColor}52, ${accentColor})`,
                 transition: isDraggingProgress ? "none" : "width 0.08s linear",
-                pointerEvents: "none",
-              }}
-            />
-            {/* Thumb */}
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: `${progressPct}%`,
-                transform: "translate(-50%, -50%)",
-                width: isDraggingProgress ? 14 : 10,
-                height: isDraggingProgress ? 14 : 10,
-                borderRadius: "50%",
-                background: accentColor,
-                boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
-                transition: isDraggingProgress
-                  ? "none"
-                  : "left 0.08s linear, width 0.12s, height 0.12s",
                 pointerEvents: "none",
               }}
             />
@@ -634,14 +616,24 @@ export default function VideoPlayer({
 
           {/* Volume control */}
           {showVolumeControl && (
-            <div style={{ position: "relative", flexShrink: 0 }}>
+            // Outer wrapper owns the hover zone — covers both pill + button so
+            // mousing between them never triggers a leave event.
+            <div
+              style={{ position: "relative", flexShrink: 0 }}
+              onMouseEnter={() => { if (!isMobile) setShowVolumeSlider(true); }}
+              onMouseLeave={() => { if (!isMobile) setShowVolumeSlider(false); }}
+            >
               {/* Floating vertical slider — desktop hover, mobile tap */}
               {showVolumeSlider && (
-                <div
-                  style={styles.volumePill}
-                  onMouseEnter={() => !isMobile && setShowVolumeSlider(true)}
-                  onMouseLeave={() => !isMobile && setShowVolumeSlider(false)}
-                >
+                <div style={styles.volumePill}>
+                  {/* Transparent 8px bridge at the bottom closes the gap to the button */}
+                  <div style={{
+                    position: "absolute",
+                    bottom: -8,
+                    left: 0,
+                    right: 0,
+                    height: 8,
+                  }} />
                   <div
                     ref={volumeTrackRef}
                     style={styles.volumeTrack}
@@ -658,7 +650,7 @@ export default function VideoPlayer({
                         width: "100%",
                         height: `${effectiveVolumePct}%`,
                         borderRadius: 999,
-                        background: `linear-gradient(180deg, ${accentColor}, ${accentColor}bb)`,
+                        background: `linear-gradient(180deg, ${accentColor}, ${accentColor}52)`,
                         transition: isDraggingVolume ? "none" : "height 0.12s",
                         pointerEvents: "none",
                       }}
@@ -671,8 +663,6 @@ export default function VideoPlayer({
               <button
                 style={styles.volumeBtn}
                 onClick={isMobile ? () => setShowVolumeSlider((v) => !v) : toggleMute}
-                onMouseEnter={() => { if (!isMobile) setShowVolumeSlider(true); }}
-                onMouseLeave={() => { if (!isMobile) setShowVolumeSlider(false); }}
                 aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
               >
                 <SvgIcon
@@ -684,10 +674,23 @@ export default function VideoPlayer({
             </div>
           )}
 
-          {/* Time */}
-          <div style={styles.timeDisplay}>
-            <span style={{ fontWeight: 600 }}>{formatTime(currentTime)}</span>
-            <span style={{ color: "#999", fontWeight: 400 }}> / {formatTime(duration)}</span>
+          {/* Time — frosted pill matching the play button style */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            background: "rgba(245,245,245,0.9)",
+            border: "1px solid rgba(255,255,255,0.9)",
+            borderRadius: buttonRadius,
+            padding: "0 14px",
+            height: 44,
+            flexShrink: 0,
+          }}>
+            <span style={{ ...styles.timeDisplay, fontWeight: 600, color: "#1a1a1a" }}>
+              {formatTime(currentTime)}
+            </span>
+            <span style={{ ...styles.timeDisplay, color: "#979797", fontWeight: 400 }}>
+              {" "}/ {formatTime(duration)}
+            </span>
           </div>
         </div>
       </div>
