@@ -37,7 +37,7 @@ export default function VideoPlayer(props) {
     const {
         videoSrc, poster, accent,
         buttonPadding, buttonRadius, borderRadius, ControlborderRadius,
-        autoplay, loop, muted,
+        autoplay, loop, muted, hideDelay,
     } = props
 
     const videoRef       = useRef<HTMLVideoElement>(null)
@@ -138,7 +138,7 @@ export default function VideoPlayer(props) {
     const handleActivity = () => {
         setShowControls(true)
         clearTimeout(hideTimeout.current)
-        hideTimeout.current = setTimeout(() => setShowControls(false), 2500)
+        hideTimeout.current = setTimeout(() => setShowControls(false), hideDelay)
     }
 
     // ================================
@@ -509,5 +509,14 @@ addPropertyControls(VideoPlayer, {
         defaultValue: 32,
         min: 0,
         max: 40,
+    },
+    hideDelay: {
+        type: ControlType.Number,
+        title: "Hide Delay (ms)",
+        defaultValue: 2500,
+        min: 500,
+        max: 8000,
+        step: 100,
+        displayStepper: true,
     },
 })
